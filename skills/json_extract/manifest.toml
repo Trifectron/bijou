@@ -1,0 +1,15 @@
+# Skill 0. Chosen because it is synthetic (unlimited data, no licensing),
+# auto-gradable (json.loads + schema compare, no LLM judge), and plausibly
+# within reach of a 150M model -- the task is format adherence, not knowledge.
+[skill]
+name            = "json_extract"
+base_checkpoint = "checkpoints/nanodiff-150m-alpaca/ckpt.pt"
+rank            = 16
+alpha           = 16
+targets         = ["attn.qkv", "attn.proj", "mlp.w1", "mlp.w2", "mlp.w3"]
+dataset         = "gen:json_extract"     # scripts/gen_json_extract.py
+eval            = "eval:json_extract"    # exact schema match, parse rate
+
+[scores]
+# Filled in by the experiment runner. Every number here must be reproducible
+# from the recorded base_checkpoint + dataset seed.
