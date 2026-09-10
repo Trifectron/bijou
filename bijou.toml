@@ -1,0 +1,45 @@
+# Every tunable value lives here at its default. .env holds only secrets and
+# per-machine paths. Override any key with BIJOU_<SECTION>__<KEY>.
+
+[paths]
+base_checkpoints = "checkpoints/base"
+adapters = "checkpoints/adapters"
+data = "data"
+runs = "runs"
+
+[backend]
+name = "nanodiff"
+checkpoint = "nanodiff-150m-alpaca"
+device = "cuda"
+dtype = "bfloat16"
+compile = false
+
+[adapter]
+rank = 16
+alpha = 16.0
+dropout = 0.0
+targets = ["attn.qkv", "attn.proj", "mlp.w1", "mlp.w2", "mlp.w3"]
+
+[train]
+lr = 1e-3
+batch_size = 16
+max_steps = 2000
+warmup_steps = 100
+weight_decay = 0.0
+grad_clip = 1.0
+prompt_len = 256
+response_len = 256
+train_samples = 20000
+seed = 0
+
+[sampling]
+steps = 64
+gen_length = 128
+block_length = 64
+temperature = 0.0
+use_cache = false
+
+[eval]
+eval_samples = 500
+seed = 1
+skills = ["json_extract"]

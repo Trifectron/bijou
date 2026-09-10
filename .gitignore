@@ -1,8 +1,13 @@
 __pycache__/
 *.pyc
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
 checkpoints/
 data/
-runs/
-.venv/
+runs/*
+!runs/.gitkeep
+*.pt
 *.safetensors
-*.bin
+.env

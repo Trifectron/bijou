@@ -1,0 +1,121 @@
+[project]
+name = "bijou"
+version = "0.1.0"
+description = "Modular capability deltas for masked diffusion language models"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+    "pydantic>=2.10",
+    "pydantic-settings>=2.7",
+    "typer>=0.15",
+    "rich>=13",
+]
+
+[project.optional-dependencies]
+# The model stack. Split out so graders and schedules stay testable without a GPU.
+train = [
+    "torch>=2.6",
+    "tiktoken>=0.8",
+    "numpy>=2.0",
+    "safetensors>=0.4",
+    "tensorboard>=2.17",
+]
+dev = [
+    "ruff>=0.9",
+    "pytest>=8",
+    "mypy>=1.14",
+    "import-linter>=2.1",
+]
+
+[project.scripts]
+bijou = "bijou.experiments.cli:app"
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["bijou*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+# Vendored upstream. Never reformatted or linted here; update by re-pulling the submodule.
+extend-exclude = ["third_party"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RET", "ARG", "PTH", "T20", "ANN"]
+ignore = ["ANN401"]
+
+[tool.ruff.lint.per-file-ignores]
+"bijou/experiments/cli.py" = ["T20"]
+"tests/*" = ["ANN", "ARG"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["typer.Option", "typer.Argument"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["bijou/core", "bijou/routing", "bijou/skills"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["gpu: needs a GPU and a base checkpoint"]
+
+# The dependency rule. A package may import one listed above it, never a sibling.
+#
+#   core <- {adapters, routing, skills, backends} <- runtime <- experiments
+#
+# Adding an edge means editing this section and docs/ARCHITECTURE.md in the same
+# change. Enforced by scripts/check-deps.sh, which runs in just check, the
+# pre-commit hook, and CI.
+[tool.importlinter]
+root_package = "bijou"
+# Required so the vendored-model and torch contracts can see external imports.
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Layering"
+type = "layers"
+layers = ["bijou.experiments", "bijou.runtime", "bijou.backends", "bijou.core"]
+
+[[tool.importlinter.contracts]]
+name = "adapters, routing and skills are siblings and never import each other"
+type = "independence"
+modules = ["bijou.adapters", "bijou.routing", "bijou.skills"]
+
+[[tool.importlinter.contracts]]
+name = "core imports nothing else in bijou"
+type = "forbidden"
+source_modules = ["bijou.core"]
+forbidden_modules = [
+    "bijou.adapters",
+    "bijou.routing",
+    "bijou.skills",
+    "bijou.backends",
+    "bijou.runtime",
+    "bijou.experiments",
+]
+
+[[tool.importlinter.contracts]]
+name = "only backends may import the vendored model"
+type = "forbidden"
+# Direct imports only. runtime reaches nanoDiff through the backend, which is the point.
+allow_indirect_imports = true
+source_modules = [
+    "bijou.core",
+    "bijou.adapters",
+    "bijou.routing",
+    "bijou.skills",
+    "bijou.runtime",
+    "bijou.experiments",
+]
+forbidden_modules = ["nanodiff"]
+
+[[tool.importlinter.contracts]]
+name = "skills are data and graders, with no model stack"
+type = "forbidden"
+source_modules = ["bijou.skills"]
+forbidden_modules = ["torch", "bijou.backends", "bijou.runtime"]

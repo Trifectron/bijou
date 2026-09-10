@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Runs the gate for what the staged changes touch. Installed by just hooks.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+changed=$(git diff --cached --name-only)
+touched() { grep -qE "$1" <<<"$changed"; }
+
+touched '^(bijou/|tests/|pyproject\.toml|scripts/)' && { echo "pre-commit: just check"; just check; }
+touched '^bijou\.toml$' && { echo "pre-commit: just config"; just config >/dev/null; }
+:

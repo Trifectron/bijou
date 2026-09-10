@@ -1,73 +1,66 @@
 # Bijou
 
-Bijou tests one question:
-
 > Can a masked diffusion language model carry **modular, composable, trajectory-routable**
-> capabilities as detachable weight deltas, rather than encoding them in prompts or in a
-> single monolithic fine-tune?
+> capabilities as detachable weight deltas, rather than encoding them in prompts or in a single
+> monolithic fine-tune?
 
-That is a research question, not a product. Read the scope section before adding anything.
+That is a research question with kill criteria, not a product. `docs/ROADMAP.md` has the order and
+the conditions under which each step ends the project.
+
+## Quick start
+
+```bash
+just bootstrap     # .env, git hooks, submodule, deps
+just check         # the gate: format, lint, layering, types, tests
+just skill sample json_extract
+```
+
+`just check` runs on CPU with no model stack installed, in about a second. `just setup-train` adds
+torch when you have a GPU box.
+
+## What is here
+
+A base model stays frozen. Named low-rank deltas attach to it, train one at a time on narrow
+auto-gradable skills, and activate in combinations and at chosen points along the denoising
+trajectory.
+
+```
+bijou/core          types, protocols, config, determinism, run records
+bijou/adapters      the AdapterSite seam
+bijou/routing       the ActivationPolicy seam
+bijou/skills        one module per skill: generate(n, seed), grade(sample, output)
+bijou/backends      the only package importing third_party/nanoDiff
+bijou/runtime       train one adapter, score one condition
+bijou/experiments   the matrix runner and the bijou CLI
+```
+
+The dependency rule is `experiments -> runtime -> {adapters, routing, skills, backends} -> core`,
+enforced by `scripts/check-deps.sh` on every commit. `docs/ARCHITECTURE.md` explains why each edge
+is where it is.
+
+## Why diffusion
+
+One reason, and it is the project's whole bet. A diffusion LM generates by iterative global
+refinement, not left-to-right emission, so *when* along the trajectory an adapter is active is a
+real, tunable axis with no autoregressive counterpart. If phase-routed adapters do not beat
+statically applied ones, the substrate is buying nothing and this should be a LoRA-composition
+project on an autoregressive model instead.
 
 ## Substrate
 
-- **Base model:** [nanoDiff](https://github.com/BY571/nanoDiff), vendored at `third_party/nanoDiff`
-  (pinned @ `312a9e7`). LLaDA-style masked diffusion, LLaMA-style bidirectional transformer,
-  50M / 150M / 350M checkpoints, ~3k LOC total.
-- **Why nanoDiff over LLaDA-8B or Dream-7B:** the whole point of the project is to run a
-  full composition matrix many times over. At 150M that is hours; at 7B it is a grant.
-  nanoDiff also exposes the two things we need to modify — the SFT masking (`nanodiff/sft.py`)
-  and the per-step denoising loop (`nanodiff/sampler.py`) — as plain readable functions
-  rather than behind a framework.
-- **Adapters:** `bijou/lora.py`. Targets `attn.qkv`, `attn.proj`, `mlp.w{1,2,3}`.
-  `lm_head` is excluded on purpose — it is weight-tied to `tok_emb`.
-
-At this scale LoRA saves no memory. It is used for **modularity**, not efficiency, which is
-why full fine-tuning of the same skill is a required baseline (see `docs/experiments.md`).
-
-## Scope
-
-**In scope**
-
-- Training adapters for narrow, auto-gradable skills on a fixed base checkpoint.
-- Measuring specialisation, cross-task damage, and interference under composition.
-- Routing different adapters to different phases of the denoising trajectory.
-
-**Explicitly out of scope, for now**
-
-- The agent harness — planner, sub-agents, computer use, MCP, browser sessions, scheduled
-  long-horizon tasks. A 350M model cannot run it, and building it here would mean measuring
-  adapter effects through a broken agent loop. It belongs in a separate repo on a capable
-  base model, and only if the results below come back positive.
-- A learned skill router. There is nothing to route until composition is shown to work.
-- Adapter serving/paging systems work. Solved elsewhere (S-LoRA); not a contribution.
-
-## Why diffusion at all
-
-One reason, and it should be stated honestly because it is the project's whole bet:
-a diffusion LM's generation is an iterative global refinement, not a left-to-right emission.
-That makes *when* along the trajectory an adapter is active a real, tunable axis that has no
-autoregressive counterpart. If phase-routed adapters do not beat statically-applied ones,
-the diffusion substrate is buying nothing and this should be a LoRA-composition project on
-an AR model instead.
+[nanoDiff](https://github.com/BY571/nanoDiff), pinned at `third_party/nanoDiff`. LLaDA-style
+masked diffusion, 50M / 150M / 350M. Chosen for iteration speed over capability — see
+`docs/decisions/0001-nanodiff-as-the-substrate.md` for what that costs.
 
 ## Naming
 
-Do not call these "SLoRA" — [S-LoRA](https://arxiv.org/abs/2311.03285) is an existing MLSys
-serving system and the collision misleads. They are **adapters** or **capability modules**.
-"Skill" is reserved for the manifest-level object (`bijou/skills.py`): adapter + base
-checkpoint + dataset + eval + recorded scores.
+These are **adapters** or **capability deltas**, never "SLoRA" —
+[S-LoRA](https://arxiv.org/abs/2311.03285) is an existing serving system and the collision
+misleads. "Skill" means the module in `bijou/skills`: data plus a grader.
 
 ## Status
 
-Scaffold only. `bijou/lora.py` and `bijou/phase.py` are written against the upstream source
-but have **not been executed** — they were authored in a container without torch. First task
-is `docs/experiments.md` step 0.
+Scaffold. The CPU gate is green; the model-stack paths have not run against a real checkpoint.
+Step 0 of `docs/ROADMAP.md` is the parity test.
 
-## Layout
-
-```
-bijou/            adapter + phase-routing + manifest code
-skills/           one directory per skill: manifest.toml (+ adapter weights, gitignored)
-docs/             experiment plan
-third_party/      nanoDiff submodule (pristine upstream)
-```
+Contributing: read `AGENTS.md`.

@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(just check:*)",
+      "Bash(just fmt:*)",
+      "Bash(just test:*)",
+      "Bash(just config:*)",
+      "Bash(just skill:*)",
+      "Bash(just runs:*)",
+      "Bash(uv run:*)",
+      "Bash(uv sync:*)",
+      "Bash(uvx ruff:*)",
+      "Bash(lint-imports:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git submodule:*)"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git reset --hard:*)",
+      "Read(.env)",
+      "Read(.env.*)",
+      "Edit(third_party/**)",
+      "Write(third_party/**)"
+    ]
+  }
+}
