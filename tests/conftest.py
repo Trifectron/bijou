@@ -11,7 +11,7 @@ from bijou.core.config import Config
 def cfg() -> Config:
     """A configuration small enough to run on CPU."""
     return Config(
-        backend={"device": "cpu", "dtype": "float32", "compile": False},
+        backend={"checkpoint": "", "device": "cpu", "dtype": "float32", "compile": False},
         train={
             "prompt_len": 32,
             "response_len": 32,

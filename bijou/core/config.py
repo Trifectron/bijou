@@ -43,7 +43,7 @@ class Backend(BaseModel):
     """Which base model the run uses. name selects the bijou.backends module."""
 
     name: str = "nanodiff"
-    checkpoint: str = "nanodiff-150m-alpaca"
+    checkpoint: str = "nanodiff-150m-alpaca"  # "" builds a randomly initialised model
     device: str = "cuda"
     dtype: str = "bfloat16"
     compile: bool = False
@@ -113,6 +113,7 @@ class Config(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="BIJOU_",
         env_nested_delimiter="__",
+        env_file=".env",
         extra="forbid",
     )
 
