@@ -67,7 +67,7 @@ A package imports one below it, never a sibling. Two contracts sharpen the rule:
 open network connections.
 
 `core` holds what everything builds on and nothing that does work. `core/types` splits into
-`errors` (one `EngineError` base), `model` (adapters, samples, scores, generation requests) and
+`errors` (one `EngineError` base), `diffusion` (adapters, samples, scores, generation requests) and
 `agent` (messages, tools, skills, plans, results, sessions, traces). `core/config` splits the same
 way, into the model's tables and the `[agent.*]` tables, under one `Config`.
 
@@ -110,7 +110,7 @@ also holds the composition matrix, the research eval.
 |---|---|---|
 | `ChatModel` | `clients.chat.OpenAIChat` | the LLM: plans, selects, drives each loop |
 | `SkillRuntime` | `clients.local_bank.LocalBank`, `clients.remote_bank.RemoteBank` | the skill bank |
-| `Tool` | `tools.builtin`, `tools.mcp.McpTool`, `agent.skill_tool.SkillTool` | a capability |
+| `Tool` | `tools.builtin`, `tools.mcp.McpTool`, `agent.toolset.SkillTool` | a capability |
 | `Policy` | `agent.policy.RiskPolicy` | allow, deny, or hold for the user |
 | `TraceSink` | `agent.trace.JsonlTrace`, `Collector`, `Fanout` | where events go |
 | `SessionStore` | `memory.sessions.SqliteSessionStore` | the session index |

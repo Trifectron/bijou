@@ -49,7 +49,7 @@ not earning its keep; the skill bank moves to an autoregressive LoRA server behi
 
 ### A2. The skill loop, end to end
 
-- [ ] One proposal from `just patterns --write`, approved, collected, trained, and equipped
+- [ ] One proposal from `just skills propose --write`, approved, collected, trained, and equipped
 - [ ] An eval case that needs the new skill, passing
 
 ### A3. A skill executor worth equipping
