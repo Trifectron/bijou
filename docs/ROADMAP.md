@@ -36,7 +36,7 @@ Publish the negative result; do not build the router.
 The only diffusion-specific claim.
 
 - [ ] Static, early/late split, and the reversed split on a task needing two skills
-- [ ] Boundaries aligned to sampler blocks, or the cache off
+- [x] Boundaries aligned to sampler blocks, or the cache off
 
 Kill criterion: phase routing is indistinguishable from static. Then the diffusion substrate is
 not earning its keep, and the honest response is to say so.
