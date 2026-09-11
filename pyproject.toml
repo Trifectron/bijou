@@ -77,7 +77,7 @@ testpaths = ["tests"]
 addopts = "--strict-markers"
 # The vendored model is on sys.path for tests that import it directly. Production
 # code reaches it through bijou.backends, whose __init__ does the same.
-pythonpath = ["third_party/nanoDiff"]
+pythonpath = [".", "third_party/nanoDiff"]
 markers = ["gpu: needs a GPU and a base checkpoint"]
 
 # The dependency rule. A package may import one listed above it, never a sibling.

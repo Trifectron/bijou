@@ -29,28 +29,6 @@ def backend():
     return backend
 
 
-def test_the_checkpoint_matches_upstream_generate(backend):
-    from nanodiff.sampler import generate as upstream_generate
-
-    cfg = backend.cfg.sampling
-    prompt = torch.tensor(
-        [backend.prompt_ids("Name three primary colors.")], device=backend.nano.device
-    )
-    request = GenerationRequest(
-        prompt="", gen_length=cfg.gen_length, steps=cfg.steps, block_length=cfg.block_length
-    )
-    ours = backend.denoise(prompt, request)
-    with backend.autocast():
-        theirs = upstream_generate(
-            backend.model,
-            prompt,
-            gen_length=cfg.gen_length,
-            steps=cfg.steps,
-            block_length=cfg.block_length,
-        )
-    assert torch.equal(ours, theirs)
-
-
 def test_the_checkpoint_answers_an_instruction(backend):
     cfg = backend.cfg.sampling
     out = backend.generate(

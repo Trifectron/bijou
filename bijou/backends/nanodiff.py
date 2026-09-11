@@ -14,7 +14,6 @@ test asserts it.
 from __future__ import annotations
 
 from collections.abc import Callable
-from contextlib import AbstractContextManager, nullcontext
 from dataclasses import replace
 from pathlib import Path
 from typing import Protocol
@@ -96,6 +95,12 @@ class NanoDiffBackend:
     def eot_id(self) -> int:
         return self.enc.eot_token
 
+    def autocast(self) -> torch.autocast:
+        """Mixed precision at the configured dtype. A no-op for float32."""
+        device_type = "cuda" if str(self.nano.device).startswith("cuda") else "cpu"
+        dtype = getattr(torch, self.nano.dtype)
+        return torch.autocast(device_type, dtype=dtype, enabled=dtype != torch.float32)
+
     def _nano_config(self) -> NanoConfig:
         return NanoConfig(
             device=self.cfg.backend.device,
@@ -135,6 +140,11 @@ class NanoDiffBackend:
         self.model = model
         return model
 
+    def prompt_ids(self, prompt: str) -> list[int]:
+        """The prompt in the SFT template, truncated from the left like encode."""
+        ids = self.enc.encode(SFT_PROMPT_NO_INPUT.format(instruction=prompt))
+        return ids[-self.cfg.train.prompt_len :]
+
     def encode(self, prompt: str, target: str) -> tuple[torch.Tensor, torch.Tensor]:
         """One sample as fixed-width prompt and response ids."""
         prompt_ids, response_ids = encode_sft_example(
@@ -157,23 +167,13 @@ class NanoDiffBackend:
             logits = self.model(x_t)
             return sft_loss(logits, responses, mask, t)
 
-    def autocast(self) -> AbstractContextManager[object]:
-        """Mixed precision at backend.dtype on CUDA; a no-op on CPU or at float32."""
-        if self.nano.device.startswith("cuda") and self.cfg.backend.dtype != "float32":
-            return torch.autocast("cuda", dtype=getattr(torch, self.cfg.backend.dtype))
-        return nullcontext()
-
     def pretrain_loss(self, x0: torch.Tensor) -> torch.Tensor:
         """The pretraining objective. Used only by the parity fixtures."""
         if self.model is None:
             raise BackendError("build the model before computing a loss")
         x_t, mask, t = forward_process(x0, self.nano.mask_token_id)
-        return diffusion_loss(self.model(x_t), x0, mask, t)
-
-    def prompt_ids(self, instruction: str) -> list[int]:
-        """The instruction in the SFT template, truncated from the left to train.prompt_len."""
-        ids = self.enc.encode(SFT_PROMPT_NO_INPUT.format(instruction=instruction))
-        return ids[-self.cfg.train.prompt_len :]
+        with self.autocast():
+            return diffusion_loss(self.model(x_t), x0, mask, t)
 
     @torch.no_grad()
     def generate(self, req: GenerationRequest, on_step: StepHook | None = None) -> str:
@@ -222,14 +222,15 @@ class NanoDiffBackend:
 
         block_length = req.block_length or req.gen_length
         blocks = req.gen_length // block_length
-        steps_per_block = req.steps // blocks
+        base_steps, extra = divmod(req.steps, blocks)
         step = 0
 
         for block in range(blocks):
             s0 = p_len + block * block_length
             s1 = s0 + block_length
-            counts = _transfer_schedule(block_length, steps_per_block, device)
-            for i in range(steps_per_block):
+            block_steps = base_steps + (1 if block < extra else 0)
+            counts = _transfer_schedule(block_length, block_steps, device)
+            for i in range(block_steps):
                 if on_step is not None:
                     on_step(step, req.steps)
                 step += 1

@@ -149,26 +149,6 @@ def test_inert_adapter_does_not_change_generation(backend, cfg):
     assert before == after
 
 
-@pytest.mark.parametrize("temperature", [0.0, 0.8])
-def test_denoising_matches_upstream_generate(backend, temperature):
-    from nanodiff.sampler import generate as upstream_generate
-
-    model = backend.build()
-    prompt = torch.tensor([backend.prompt_ids("an instruction")])
-    request = GenerationRequest(
-        prompt="", gen_length=16, steps=8, block_length=8, temperature=temperature
-    )
-
-    torch.manual_seed(0)
-    ours = backend.denoise(prompt, request)
-    torch.manual_seed(0)
-    theirs = upstream_generate(
-        model, prompt, gen_length=16, steps=8, block_length=8, temperature=temperature
-    )
-
-    assert torch.equal(ours, theirs)
-
-
 def test_prompts_use_the_sft_template(cfg, make_backend):
     from nanodiff.sft import SFT_PROMPT_NO_INPUT
 

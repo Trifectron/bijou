@@ -86,7 +86,7 @@ class Train(BaseModel):
 
     lr: float = 1e-3
     full_finetune_lr: float = 5e-5
-    batch_size: int = 16
+    batch_size: int = 8
     max_steps: int = 2000
     warmup_steps: int = 100
     weight_decay: float = 0.0
@@ -137,6 +137,7 @@ class Config(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="BIJOU_",
         env_nested_delimiter="__",
+        env_file=".env",
         extra="forbid",
     )
 
