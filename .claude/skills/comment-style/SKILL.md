@@ -5,7 +5,7 @@ description: The comment rules for this repo. Use when writing or editing any Py
 
 # Comment style
 
-Applies to every `#` and `"""` in `bijou/` and `tests/`, for new code and for any comment a change
+Applies to every `#` and `"""` under `apps/`, tests included, for new code and for any comment a change
 touches. `third_party/` is exempt; it is never edited.
 
 ## Say what the code does

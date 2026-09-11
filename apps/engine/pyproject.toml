@@ -1,0 +1,58 @@
+[project]
+name = "engine"
+version = "0.1.0"
+description = "A masked diffusion LM with a bank of LoRA skills, and the agent that plans and equips them"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+    "pydantic>=2.10",
+    "pydantic-settings>=2.7",
+    "typer>=0.15",
+    "rich>=13",
+    "httpx>=0.28",
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
+    "mcp>=1.9",
+]
+
+[project.optional-dependencies]
+# The model stack, installed with exactly one of cpu or cuda.
+train = [
+    "tiktoken>=0.8",
+    "numpy>=2.0",
+]
+cpu = ["torch>=2.6"]
+cuda = ["torch>=2.6"]
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", extra = "cpu" }]
+
+[project.scripts]
+engine = "engine.commands:app"
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = { "engine" = "." }
+packages = [
+    "engine",
+    "engine.core",
+    "engine.core.types",
+    "engine.core.config",
+    "engine.adapters",
+    "engine.routing",
+    "engine.skills",
+    "engine.backends",
+    "engine.runtime",
+    "engine.agent",
+    "engine.model",
+    "engine.tools",
+    "engine.stores",
+    "engine.patterns",
+    "engine.collect",
+    "engine.experiments",
+    "engine.routes",
+    "engine.commands",
+]

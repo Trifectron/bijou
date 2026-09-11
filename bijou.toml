@@ -1,5 +1,9 @@
 # Every tunable value lives here at its default. .env holds only secrets and
-# per-machine paths. Override any key with BIJOU_<SECTION>__<KEY>.
+# per-machine URLs. Override any key with BIJOU_<SECTION>__<KEY>.
+#
+# Shared by every app in apps/. Each reads only the tables it owns: the engine the unprefixed
+# model tables, [serve], [collect] and [agent.*]; evals [evals]; and the
+# console [console] plus the few paths its status bar reports.
 
 [paths]
 base_checkpoints = "checkpoints/base"
@@ -58,3 +62,123 @@ seed = 2
 log_lines = 5000
 log_dir = ".bijou/logs"
 status_interval_secs = 5.0
+
+# ---------------------------------------------------------------- the skill server
+# engine serve-skills: the skill bank over HTTP, for an agent on another machine.
+[serve]
+host = "127.0.0.1"
+port = 8100
+max_gen_length = 512
+
+# ---------------------------------------------------------------- LoRA collection
+# A teacher LLM writes the examples a dataset skill trains on. base_url and api_key are
+# per-machine and live in .env.
+[collect]
+model = "Qwen/Qwen3-4B-GGUF:Q4_K_M"
+thinking = false
+temperature = 0.8
+max_tokens = 4096
+timeout_secs = 180.0
+examples = 300
+per_request = 10
+max_rounds = 100
+dev_ratio = 0.1
+eval_ratio = 0.2
+seed = 3
+
+# ================================================================ the agent
+# The agent in apps/engine: an LLM plans and picks diffusion skills, subagents act with tools and MCP.
+# Secrets and per-machine URLs live in .env: BIJOU_AGENT__LLM__BASE_URL, ..._API_KEY,
+# BIJOU_AGENT__MCP__PLAYWRIGHT_URL. Every prompt the agent writes is in [agent.prompt]
+# with a default in apps/engine/core/config/agent.py; set a key here to change the wording.
+
+# The chat model that plans, selects skills and drives each subagent. llama-server by default.
+[agent.llm]
+model = "Qwen/Qwen3-4B-GGUF:Q4_K_M"
+thinking = false
+max_tokens = 1024
+temperature = 0.2
+timeout_secs = 120.0
+
+# The skill bank: local loads it in this process; http reaches engine serve-skills at url.
+# Unset gen_length and steps use [sampling].
+[agent.skills]
+mode = "local"
+url = "http://127.0.0.1:8100"
+timeout_secs = 300.0
+
+[agent.loop]
+max_turns = 8
+max_model_retries = 2
+retry_base_ms = 250
+retry_cap_ms = 8000
+run_timeout_secs = 600.0
+tool_timeout_secs = 60.0
+max_tool_output_chars = 6000
+
+# max_steps is how many subagents one request may use; concurrency how many run at once.
+[agent.planning]
+max_steps = 4
+concurrency = 2
+max_skills = 2
+allow_schedules = true
+
+# Risk classes in order: read_public, read_authenticated, prepare_write, external_write,
+# destructive, forbidden. Classes at or above confirm_from wait for the user.
+[agent.policy]
+confirm_from = "external_write"
+allow_authenticated_reads = false
+confirmation_ttl_secs = 900
+
+[agent.tools]
+disabled = []
+current_time = true
+recall_sessions = true
+fetch_url = true
+fetch_max_chars = 8000
+fetch_timeout_secs = 20.0
+fetch_allowed_domains = []
+user_agent = "bijou-engine/0.1"
+
+# Setting playwright_url in .env adds the browser server; just browser starts it.
+[agent.mcp]
+max_description_chars = 200
+
+# [[agent.mcp.servers]]
+# name = "computer"
+# command = "npx"
+# args = ["-y", "some-computer-use-mcp"]
+# tools = []
+# timeout_secs = 60.0
+# risk = "external_write"
+
+[agent.sessions]
+path = ".bijou/sessions.db"
+resume_chars = 2000
+list_limit = 20
+
+# A kind of work seen in min_occurrences sessions with no skill equipped becomes a proposal.
+[agent.patterns]
+min_occurrences = 3
+similarity = 0.5
+window = 500
+proposals_dir = "data/proposals"
+max_examples = 20
+
+[agent.trace]
+enabled = true
+dir = ".bijou/traces"
+
+[agent.http]
+host = "127.0.0.1"
+port = 8200
+
+# ================================================================ evals
+# apps/evals: golden cases against a serving engine, just serve.
+[evals]
+engine_url = "http://127.0.0.1:8200"
+timeout_secs = 900.0
+cases_dir = "apps/evals/cases"
+baseline_path = "apps/evals/baseline.json"
+report_path = ".bijou/evals/report.json"
+tolerance = 0.0

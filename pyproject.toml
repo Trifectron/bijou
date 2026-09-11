@@ -1,54 +1,32 @@
-[project]
-name = "bijou"
-version = "0.1.0"
-description = "Modular capability deltas for masked diffusion language models"
-requires-python = ">=3.12"
-license = { text = "MIT" }
-dependencies = [
-    "pydantic>=2.10",
-    "pydantic-settings>=2.7",
-    "typer>=0.15",
-    "rich>=13",
-    "textual>=6",
-]
+# The workspace. Every app under apps/ is its own package with its own pyproject.toml. This file
+# holds the tooling they share and the dependency rule, between apps and inside each one.
+#
+#   apps/engine   the diffusion model and its skill bank, the agent that equips it, collection,
+#                 research, and the engine command
+#   apps/evals    golden cases against a serving engine, scored by suite, gated on a baseline
+#   apps/cli      the developer console over every just recipe
+#
+# Apps never import each other. evals reaches the engine over HTTP; the console runs recipes.
 
-[project.optional-dependencies]
-# The model stack, installed with exactly one of cpu or cuda.
-train = [
-    "tiktoken>=0.8",
-    "numpy>=2.0",
-]
-cpu = ["torch>=2.6"]
-cuda = ["torch>=2.6"]
-
-[dependency-groups]
-dev = [
-    "ruff>=0.9",
-    "pytest>=8",
-    "mypy>=1.14",
-    "import-linter>=2.1",
-]
+[tool.uv.workspace]
+members = ["apps/*"]
 
 [tool.uv]
-conflicts = [[{ extra = "cpu" }, { extra = "cuda" }]]
-
-[tool.uv.sources]
-torch = [{ index = "pytorch-cpu", extra = "cpu" }]
+conflicts = [[{ package = "engine", extra = "cpu" }, { package = "engine", extra = "cuda" }]]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
-[project.scripts]
-bijou = "bijou.experiments.cli:app"
-
-[build-system]
-requires = ["setuptools>=77"]
-build-backend = "setuptools.build_meta"
-
-[tool.setuptools.packages.find]
-include = ["bijou*"]
+[dependency-groups]
+dev = [
+    "ruff>=0.9",
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "mypy>=1.14",
+    "import-linter>=2.1",
+]
 
 [tool.ruff]
 line-length = 100
@@ -60,60 +38,109 @@ extend-exclude = ["third_party"]
 select = ["E", "F", "I", "UP", "B", "SIM", "RET", "ARG", "PTH", "T20", "ANN"]
 ignore = ["ANN401"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["engine", "evals", "cli"]
+
 [tool.ruff.lint.per-file-ignores]
-"bijou/experiments/cli.py" = ["T20"]
-"tests/*" = ["ANN", "ARG"]
+"apps/engine/commands/*" = ["T20"]
+"apps/evals/cli.py" = ["T20"]
+"apps/*/tests/*" = ["ANN", "ARG"]
 
 [tool.ruff.lint.flake8-bugbear]
-extend-immutable-calls = ["typer.Option", "typer.Argument"]
+extend-immutable-calls = ["typer.Option", "typer.Argument", "fastapi.Depends"]
 
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["bijou/core", "bijou/routing", "bijou/skills"]
+files = [
+    "apps/engine/core",
+    "apps/engine/routing",
+    "apps/engine/skills",
+    "apps/engine/agent",
+    "apps/engine/model/openai_compat.py",
+    "apps/engine/model/skill_server.py",
+    "apps/engine/tools",
+    "apps/engine/stores",
+    "apps/engine/patterns",
+    "apps/evals",
+]
+exclude = ["apps/[^/]+/tests/"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = "--strict-markers"
-# The vendored model is on sys.path for tests that import it directly. Production
-# code reaches it through bijou.backends, whose __init__ does the same.
-pythonpath = [".", "third_party/nanoDiff"]
+testpaths = ["apps"]
+# Test files share basenames across apps, so each is imported by path rather than by name.
+addopts = "--strict-markers --import-mode=importlib"
+# The vendored model is on sys.path for tests that import it directly. Production code reaches
+# it through engine.backends, whose __init__ does the same.
+pythonpath = ["third_party/nanoDiff"]
 markers = ["gpu: needs a GPU and a base checkpoint"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 
-# The dependency rule. A package may import one listed above it, never a sibling.
-#
-#   core <- {adapters, routing, skills, backends} <- runtime <- experiments
-#
-# Adding an edge means editing this section and docs/ARCHITECTURE.md in the same
-# change. Enforced by scripts/check-deps.sh, which runs in just check, the
-# pre-commit hook, and CI.
+# The dependency rule. Adding an edge means editing this section and docs/ARCHITECTURE.md in the
+# same change. Enforced by scripts/check-deps.sh, which runs in just check, the pre-commit hook,
+# and CI.
 [tool.importlinter]
-root_package = "bijou"
+root_packages = ["engine", "evals", "cli"]
 # Required so the vendored-model and torch contracts can see external imports.
 include_external_packages = true
+# The contracts are about what runs. An import under TYPE_CHECKING never does.
+exclude_type_checking_imports = true
 
 [[tool.importlinter.contracts]]
-name = "Layering"
+name = "apps never import each other"
+type = "independence"
+modules = ["engine", "evals", "cli"]
+
+# ---------------------------------------------------------------- inside the engine
+#
+#   commands
+#   routes | experiments
+#   wiring
+#   agent | model | tools | stores | patterns | collect
+#   runtime
+#   {adapters, routing, skills} and backends
+#   core
+
+[[tool.importlinter.contracts]]
+name = "engine layering"
 type = "layers"
-layers = ["bijou.experiments", "bijou.runtime", "bijou.backends", "bijou.core"]
+layers = [
+    "engine.commands",
+    "engine.routes | engine.experiments",
+    "engine.wiring",
+    "engine.agent | engine.model | engine.tools | engine.stores | engine.patterns | engine.collect",
+    "engine.runtime",
+    "engine.backends",
+    "engine.core",
+]
 
 [[tool.importlinter.contracts]]
 name = "adapters, routing and skills are siblings and never import each other"
 type = "independence"
-modules = ["bijou.adapters", "bijou.routing", "bijou.skills"]
+modules = ["engine.adapters", "engine.routing", "engine.skills"]
 
 [[tool.importlinter.contracts]]
-name = "core imports nothing else in bijou"
+name = "core imports nothing else in the engine"
 type = "forbidden"
-source_modules = ["bijou.core"]
+source_modules = ["engine.core"]
 forbidden_modules = [
-    "bijou.adapters",
-    "bijou.routing",
-    "bijou.skills",
-    "bijou.backends",
-    "bijou.runtime",
-    "bijou.experiments",
+    "engine.adapters",
+    "engine.routing",
+    "engine.skills",
+    "engine.backends",
+    "engine.runtime",
+    "engine.agent",
+    "engine.model",
+    "engine.tools",
+    "engine.stores",
+    "engine.patterns",
+    "engine.collect",
+    "engine.experiments",
+    "engine.wiring",
+    "engine.routes",
+    "engine.commands",
 ]
 
 [[tool.importlinter.contracts]]
@@ -122,17 +149,50 @@ type = "forbidden"
 # Direct imports only. runtime reaches nanoDiff through the backend, which is the point.
 allow_indirect_imports = true
 source_modules = [
-    "bijou.core",
-    "bijou.adapters",
-    "bijou.routing",
-    "bijou.skills",
-    "bijou.runtime",
-    "bijou.experiments",
+    "engine.core",
+    "engine.adapters",
+    "engine.routing",
+    "engine.skills",
+    "engine.runtime",
+    "engine.agent",
+    "engine.model",
+    "engine.tools",
+    "engine.stores",
+    "engine.patterns",
+    "engine.collect",
+    "engine.experiments",
+    "engine.wiring",
+    "engine.routes",
+    "engine.commands",
 ]
 forbidden_modules = ["nanodiff"]
 
 [[tool.importlinter.contracts]]
-name = "skills are data and graders, with no model stack"
+name = "skills are data and graders, with no model stack and no network"
 type = "forbidden"
-source_modules = ["bijou.skills"]
-forbidden_modules = ["torch", "bijou.backends", "bijou.runtime"]
+source_modules = ["engine.skills"]
+forbidden_modules = ["torch", "httpx", "engine.backends", "engine.runtime"]
+
+[[tool.importlinter.contracts]]
+name = "the agent loop never loads the diffusion model; it reaches it through SkillRuntime"
+type = "forbidden"
+source_modules = ["engine.agent", "engine.tools", "engine.stores", "engine.patterns"]
+forbidden_modules = ["torch", "engine.runtime", "engine.backends", "engine.adapters"]
+
+[[tool.importlinter.contracts]]
+name = "only model, tools and collect open network connections"
+type = "forbidden"
+source_modules = [
+    "engine.core",
+    "engine.agent",
+    "engine.stores",
+    "engine.patterns",
+    "engine.runtime",
+    "engine.adapters",
+    "engine.routing",
+    "engine.skills",
+    "engine.backends",
+    "engine.experiments",
+]
+forbidden_modules = ["httpx", "mcp"]
+allow_indirect_imports = true

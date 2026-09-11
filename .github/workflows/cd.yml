@@ -33,7 +33,8 @@ jobs:
               - pyproject.toml
               - uv.lock
               - bijou.toml
-              - bijou/**
+              - apps/*/pyproject.toml
+              - apps/engine/**
               - third_party/**
       # The CUDA torch layers outgrow the runner's free disk. These toolchains are unused here.
       - if: steps.filter.outputs.image == 'true' || github.event_name != 'push'
