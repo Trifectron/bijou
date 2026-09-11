@@ -74,8 +74,9 @@ def train_adapter(
         state.set(skill_name)
         record.scores["trainable_params"] = float(trainable(model, skill_name))
 
+    lr = cfg.train.full_finetune_lr if full_finetune else cfg.train.lr
     optimizer = model.configure_optimizers(
-        cfg.train.weight_decay, cfg.train.lr, (0.9, 0.95), backend.nano.device
+        cfg.train.weight_decay, lr, (0.9, 0.95), backend.nano.device
     )
     # Linear warmup from lr / warmup_steps to lr, then constant.
     warmup = max(cfg.train.warmup_steps, 1)
@@ -100,12 +101,12 @@ def train_adapter(
     record.finish(final_loss=total / max(step, 1), steps=float(step))
     out = record.write(cfg.paths.runs)
 
-    path = cfg.paths.adapters / f"{skill_name}.pt"
-    if not full_finetune:
-        adapter_io.save(model, skill_name, path, spec_for(cfg, skill_name))
-    else:
-        path = cfg.paths.base_checkpoints / f"{skill_name}-full.pt"
+    if full_finetune:
+        path = cfg.full_finetune_path(skill_name)
         path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save({"model": model.state_dict()}, path)
+        torch.save({"model": model.state_dict(), "config": backend.nano}, path)
+    else:
+        path = cfg.adapter_path(skill_name)
+        adapter_io.save(model, skill_name, path, spec_for(cfg, skill_name))
     (out / "artifact").write_text(str(path))
     return path

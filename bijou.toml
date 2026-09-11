@@ -23,6 +23,7 @@ targets = ["attn.qkv", "attn.proj", "mlp.w1", "mlp.w2", "mlp.w3"]
 
 [train]
 lr = 1e-3
+full_finetune_lr = 5e-5
 batch_size = 16
 max_steps = 2000
 warmup_steps = 100
@@ -43,3 +44,11 @@ temperature = 0.0
 eval_samples = 500
 seed = 1
 skills = ["json_extract"]
+# Rows of the matrix: every adapter subset, the tuned-prompt baseline, each full fine-tune.
+conditions = ["adapters", "tuned-prompt", "full-finetune"]
+
+[prompting]
+# Candidates are every skill instruction crossed with every shot count, scored on a dev split.
+shots = [0, 3]
+dev_samples = 100
+seed = 2

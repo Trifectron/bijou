@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import (
@@ -21,6 +22,8 @@ from pydantic_settings import (
 )
 
 from bijou.core.types import ConfigError
+
+Condition = Literal["adapters", "tuned-prompt", "full-finetune"]
 
 
 def _toml_files() -> tuple[Path, ...]:
@@ -49,7 +52,7 @@ class Backend(BaseModel):
     name: str = "nanodiff"
     checkpoint: str = "nanodiff-150m-sft-alpaca"
     device: str = "cuda"
-    dtype: str = "bfloat16"
+    dtype: Literal["float32", "bfloat16"] = "bfloat16"
     compile: bool = False
 
 
@@ -82,6 +85,7 @@ class Train(BaseModel):
     """The adapter fine-tuning loop."""
 
     lr: float = 1e-3
+    full_finetune_lr: float = 5e-5
     batch_size: int = 16
     max_steps: int = 2000
     warmup_steps: int = 100
@@ -108,6 +112,23 @@ class Eval(BaseModel):
     eval_samples: int = 500
     seed: int = 1
     skills: tuple[str, ...] = ("json_extract",)
+    conditions: tuple[Condition, ...] = ("adapters", "tuned-prompt", "full-finetune")
+
+
+class Prompting(BaseModel):
+    """The tuned-prompt baseline: candidates scored on a dev split, the best one evaluated."""
+
+    shots: tuple[int, ...] = (0, 3)
+    dev_samples: int = 100
+    seed: int = 2
+
+    @model_validator(mode="after")
+    def _check(self) -> Prompting:
+        if not self.shots or any(k < 0 for k in self.shots):
+            raise ConfigError("prompting.shots needs at least one count, none negative")
+        if self.dev_samples <= 0:
+            raise ConfigError("prompting.dev_samples must be positive")
+        return self
 
 
 class Config(BaseSettings):
@@ -125,6 +146,7 @@ class Config(BaseSettings):
     train: Train = Field(default_factory=Train)
     sampling: Sampling = Field(default_factory=Sampling)
     eval: Eval = Field(default_factory=Eval)
+    prompting: Prompting = Field(default_factory=Prompting)
 
     @classmethod
     def settings_customise_sources(
@@ -159,7 +181,20 @@ class Config(BaseSettings):
             raise ConfigError(
                 "train.seed equals eval.seed, so the eval split overlaps training data"
             )
+        if self.prompting.seed in (self.train.seed, self.eval.seed):
+            raise ConfigError("prompting.seed must differ from train.seed and eval.seed")
+        if not self.eval.conditions:
+            raise ConfigError("eval.conditions is empty, the matrix would score nothing")
         return self
+
+    def adapter_path(self, skill: str) -> Path:
+        """Where the adapter trained on one skill is written."""
+        return self.paths.adapters / f"{skill}.pt"
+
+    def full_finetune_path(self, skill: str) -> Path:
+        """Where the full fine-tune on one skill is written, beside the base checkpoints."""
+        base = self.backend.checkpoint or "random"
+        return self.paths.base_checkpoints / f"{base}-{skill}-full.pt"
 
 
 @lru_cache(maxsize=1)

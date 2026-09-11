@@ -1,5 +1,9 @@
 """One module per skill, each exposing generate(n, seed) and grade(sample, output).
 
+A skill module also exposes INSTRUCTIONS, the candidate instructions for the
+tuned-prompt baseline, and every sample it generates carries its input under
+meta["text"], so a prompt can be rebuilt from an instruction and the input.
+
 A skill is data and a grader. It imports no backend and no runtime, so graders
 are unit-testable on CPU in milliseconds and the eval suite runs on every commit.
 """

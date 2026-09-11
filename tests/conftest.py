@@ -37,6 +37,7 @@ def cfg() -> Config:
         },
         sampling={"steps": 4, "gen_length": 16, "block_length": 8},
         eval={"eval_samples": 4, "seed": 1},
+        prompting={"shots": (0, 1), "dev_samples": 2, "seed": 2},
     )
 
 

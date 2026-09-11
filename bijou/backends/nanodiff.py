@@ -14,6 +14,7 @@ test asserts it.
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import replace
 from pathlib import Path
 from typing import Protocol
@@ -152,8 +153,15 @@ class NanoDiffBackend:
         if self.model is None:
             raise BackendError("build the model before computing a loss")
         x_t, mask, t = sft_forward_process(prompts, responses, self.nano.mask_token_id)
-        logits = self.model(x_t)
-        return sft_loss(logits, responses, mask, t)
+        with self.autocast():
+            logits = self.model(x_t)
+            return sft_loss(logits, responses, mask, t)
+
+    def autocast(self) -> AbstractContextManager[object]:
+        """Mixed precision at backend.dtype on CUDA; a no-op on CPU or at float32."""
+        if self.nano.device.startswith("cuda") and self.cfg.backend.dtype != "float32":
+            return torch.autocast("cuda", dtype=getattr(torch, self.cfg.backend.dtype))
+        return nullcontext()
 
     def pretrain_loss(self, x0: torch.Tensor) -> torch.Tensor:
         """The pretraining objective. Used only by the parity fixtures."""
@@ -193,7 +201,8 @@ class NanoDiffBackend:
         was_training = model.training
         model.eval()
         try:
-            return self._denoise(model, prompt_ids, req, on_step)
+            with self.autocast():
+                return self._denoise(model, prompt_ids, req, on_step)
         finally:
             model.train(was_training)
 

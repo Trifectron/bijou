@@ -104,3 +104,7 @@ class AdapterError(BijouError):
 
 class BackendError(BijouError):
     """A backend could not build a model, train, or generate."""
+
+
+class ArtifactError(BijouError):
+    """A trained adapter or checkpoint that a run needs is not on disk."""

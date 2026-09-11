@@ -19,7 +19,13 @@ ROLES = ("engineer", "analyst", "designer", "researcher", "manager")
 CITIES = ("Tempe", "Seattle", "Austin", "Boston", "Denver")
 NAMES = ("Ana", "Ben", "Chen", "Dara", "Eli", "Farah", "Gita", "Hugo")
 
-PROMPT = "Extract name, role, city and years from the text as JSON.\n\n{text}"
+# Candidates for the tuned-prompt baseline. The first is the default prompt.
+INSTRUCTIONS = (
+    "Extract name, role, city and years from the text as JSON.",
+    'Reply with one JSON object with the keys "name", "role", "city" and "years" '
+    "for the person described below. years is a number.",
+)
+PROMPT = "{instruction}\n\n{text}"
 
 
 def generate(n: int, seed: int) -> list[Sample]:
@@ -40,8 +46,9 @@ def generate(n: int, seed: int) -> list[Sample]:
         samples.append(
             Sample(
                 id=f"{NAME}-{seed}-{i}",
-                prompt=PROMPT.format(text=text),
+                prompt=PROMPT.format(instruction=INSTRUCTIONS[0], text=text),
                 target=json.dumps(record),
+                meta={"text": text},
             )
         )
     return samples

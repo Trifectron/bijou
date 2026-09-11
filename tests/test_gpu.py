@@ -40,13 +40,14 @@ def test_the_checkpoint_matches_upstream_generate(backend):
         prompt="", gen_length=cfg.gen_length, steps=cfg.steps, block_length=cfg.block_length
     )
     ours = backend.denoise(prompt, request)
-    theirs = upstream_generate(
-        backend.model,
-        prompt,
-        gen_length=cfg.gen_length,
-        steps=cfg.steps,
-        block_length=cfg.block_length,
-    )
+    with backend.autocast():
+        theirs = upstream_generate(
+            backend.model,
+            prompt,
+            gen_length=cfg.gen_length,
+            steps=cfg.steps,
+            block_length=cfg.block_length,
+        )
     assert torch.equal(ours, theirs)
 
 

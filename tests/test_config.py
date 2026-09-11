@@ -30,6 +30,16 @@ def test_train_samples_must_fill_one_batch():
         Config(train={"train_samples": 4, "batch_size": 16})
 
 
+def test_the_prompt_dev_split_has_its_own_seed():
+    with pytest.raises(ConfigError, match="prompting.seed"):
+        Config(prompting={"seed": 1})
+
+
+def test_unknown_condition_rejected():
+    with pytest.raises(ValueError, match="conditions"):
+        Config(eval={"conditions": ["ensembles"]})
+
+
 def test_env_override(monkeypatch):
     monkeypatch.setenv("BIJOU_ADAPTER__RANK", "8")
     assert Config().adapter.rank == 8

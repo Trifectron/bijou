@@ -5,7 +5,7 @@ import json
 import pytest
 
 from bijou.core.types import Sample
-from bijou.skills import UnknownSkill, load
+from bijou.skills import KNOWN, UnknownSkill, load
 from bijou.skills import json_extract as je
 
 
@@ -39,6 +39,13 @@ def test_partial_credit_is_reported():
     score = je.grade(sample, json.dumps(partial))
     assert not score.passed
     assert score.value == pytest.approx(0.75)
+
+
+@pytest.mark.parametrize("name", KNOWN)
+def test_every_skill_supports_the_tuned_prompt_baseline(name):
+    skill = load(name)
+    assert skill.INSTRUCTIONS
+    assert all(s.meta.get("text") for s in skill.generate(3, seed=1))
 
 
 def test_non_object_output_fails():

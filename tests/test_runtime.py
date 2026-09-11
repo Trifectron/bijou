@@ -11,7 +11,8 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from bijou.core.runs import load_records  # noqa: E402
-from bijou.experiments.matrix import conditions  # noqa: E402
+from bijou.core.types import ArtifactError  # noqa: E402
+from bijou.experiments.matrix import conditions, run  # noqa: E402
 from bijou.routing.phase import PhaseSchedule  # noqa: E402
 from bijou.runtime.evaluate import prepare, score_condition  # noqa: E402
 from bijou.runtime.train import train_adapter  # noqa: E402
@@ -79,6 +80,38 @@ def test_untrained_model_scores_zero_but_still_grades(local_cfg, make_backend):
     # rather than raise.
     assert report.passed == 0
     assert all(not s.passed and s.detail for s in scores)
+
+
+def test_the_matrix_scores_every_condition(local_cfg, make_backend):
+    train_adapter(local_cfg, "json_extract", backend=make_backend(local_cfg))
+    train_adapter(local_cfg, "json_extract", full_finetune=True, backend=make_backend(local_cfg))
+    reports = run(local_cfg, make_backend=make_backend)
+
+    assert {r.condition for r in reports} == {
+        "none",
+        "json_extract",
+        "tuned-prompt",
+        "full:json_extract",
+    }
+    (record,) = [r for r in load_records(local_cfg.paths.runs) if r.kind == "eval"]
+    assert {"adapter/json_extract", "full-finetune/json_extract"} <= set(record.inputs)
+    assert "tuned-prompt/json_extract/shots" in record.scores
+
+
+def test_the_matrix_names_the_missing_artifact(local_cfg, make_backend):
+    with pytest.raises(ArtifactError, match="just skill train json_extract"):
+        run(local_cfg, make_backend=make_backend)
+
+
+def test_a_full_finetune_loads_as_a_base_checkpoint(local_cfg, make_backend):
+    path = train_adapter(
+        local_cfg, "json_extract", full_finetune=True, backend=make_backend(local_cfg)
+    )
+    assert path == local_cfg.full_finetune_path("json_extract")
+    full_cfg = local_cfg.model_copy(
+        update={"backend": local_cfg.backend.model_copy(update={"checkpoint": path.stem})}
+    )
+    make_backend(full_cfg).build()
 
 
 def test_conditions_cover_every_subset():

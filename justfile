@@ -107,12 +107,13 @@ evaluate:
 runs:
     uv run bijou run list
 
-# Train every configured skill, then score the matrix
+# Train an adapter and a full fine-tune for every skill, then score the matrix
 matrix:
     #!/usr/bin/env bash
     set -euo pipefail
     for s in $(uv run bijou skill names); do
         uv run bijou skill train "$s"
+        uv run bijou skill train "$s" --full-finetune
     done
     uv run bijou evaluate
 
