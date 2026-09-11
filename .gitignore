@@ -11,3 +11,4 @@ runs/*
 *.pt
 *.safetensors
 .env
+*.egg-info/
