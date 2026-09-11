@@ -18,7 +18,7 @@ Until parity holds, every downstream number is uninterpretable.
 Null hypothesis is a tuned prompt on the same base model, not zero-shot.
 
 - [ ] Skills: `json_extract`, `normalize`, `fn_call`
-- [ ] Conditions per skill: base zero-shot, base tuned prompt, LoRA, full fine-tune
+- [x] Conditions per skill: base zero-shot, base tuned prompt, LoRA, full fine-tune
 - [ ] Report each adapter's own score and its damage to the other skills' evals
 
 Kill criterion: no skill beats a tuned prompt outside seed variance.
