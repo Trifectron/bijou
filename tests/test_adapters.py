@@ -1,6 +1,6 @@
 """Adapter injection. Marked gpu only where a base checkpoint is needed.
 
-Step 0 of docs/experiments.md lives here: an injected model with an untrained
+Step 0 of docs/ROADMAP.md lives here: an injected model with an untrained
 adapter active must produce bit-identical output to the model without one.
 """
 

@@ -11,7 +11,7 @@ from itertools import combinations
 from typing import TYPE_CHECKING
 
 from bijou.core.config import Config
-from bijou.core.runs import RunRecord
+from bijou.core.runs import RunRecord, digest
 from bijou.core.types import SkillReport
 from bijou.routing.phase import PhaseSchedule
 from bijou.runtime.evaluate import prepare, score_condition
@@ -36,6 +36,10 @@ def run(cfg: Config, backend: NanoDiffBackend | None = None) -> list[SkillReport
     record.notes = f"matrix over {len(skills)} skills"
 
     backend, state = prepare(cfg, list(skills), backend=backend)
+    if backend.checkpoint_path is not None:
+        record.inputs["base_checkpoint"] = digest(backend.checkpoint_path)
+    for skill in skills:
+        record.inputs[f"adapter/{skill}"] = digest(cfg.paths.adapters / f"{skill}.pt")
     reports = []
     for name, active in conditions(skills).items():
         schedule = PhaseSchedule.static(*active) if active else PhaseSchedule.static()

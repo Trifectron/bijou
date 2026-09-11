@@ -14,6 +14,8 @@ test asserts it.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
+from pathlib import Path
 from typing import Protocol
 
 import torch
@@ -95,13 +97,35 @@ class NanoDiffBackend:
             compile=self.cfg.backend.compile,
         )
 
+    @property
+    def checkpoint_path(self) -> Path | None:
+        """The configured base checkpoint, or None when the model starts from random weights."""
+        if not self.cfg.backend.checkpoint:
+            return None
+        return self.cfg.paths.base_checkpoints / f"{self.cfg.backend.checkpoint}.pt"
+
     def build(self) -> NanoDiff:
-        """Construct the model and load the base checkpoint when one is configured."""
-        model = NanoDiff(self.nano).to(self.nano.device)
-        path = self.cfg.paths.base_checkpoints / f"{self.cfg.backend.checkpoint}.pt"
-        if path.exists():
-            blob = torch.load(path, map_location=self.nano.device, weights_only=False)
-            model.load_state_dict(blob.get("model", blob))
+        """Construct the model. A base checkpoint sets both its architecture and its weights."""
+        path = self.checkpoint_path
+        weights = None
+        if path is not None:
+            if not path.exists():
+                raise BackendError(f"base checkpoint {path} is missing; run: just checkpoints")
+            blob = torch.load(path, map_location="cpu", weights_only=False)
+            if not isinstance(blob, dict) or "config" not in blob or "model" not in blob:
+                raise BackendError(f"{path} is not a nanoDiff checkpoint with model and config")
+            self.nano = replace(
+                blob["config"],
+                device=self.cfg.backend.device,
+                dtype=self.cfg.backend.dtype,
+                compile=self.cfg.backend.compile,
+            )
+            # Checkpoints saved from a compiled model prefix every key with _orig_mod.
+            weights = {k.removeprefix("_orig_mod."): v for k, v in blob["model"].items()}
+        model = NanoDiff(self.nano)
+        if weights is not None:
+            model.load_state_dict(weights)
+        model = model.to(self.nano.device)
         self.model = model
         return model
 

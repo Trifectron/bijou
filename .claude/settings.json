@@ -2,13 +2,17 @@
   "permissions": {
     "allow": [
       "Bash(just check:*)",
+      "Bash(just check-model:*)",
+      "Bash(just doctor:*)",
       "Bash(just fmt:*)",
       "Bash(just test:*)",
       "Bash(just config:*)",
       "Bash(just skill:*)",
       "Bash(just runs:*)",
+      "Bash(just vendor:*)",
       "Bash(uv run:*)",
       "Bash(uv sync:*)",
+      "Bash(uv lock:*)",
       "Bash(uvx ruff:*)",
       "Bash(lint-imports:*)",
       "Bash(git status:*)",
@@ -18,7 +22,11 @@
       "Bash(git branch:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git submodule:*)"
+      "Bash(git submodule:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr list:*)"
     ],
     "deny": [
       "Bash(git push --force:*)",

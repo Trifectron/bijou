@@ -12,7 +12,7 @@ from bijou.adapters.lora import add, inject, trainable
 from bijou.backends.nanodiff import NanoDiffBackend
 from bijou.core.config import Config
 from bijou.core.determinism import seed_everything
-from bijou.core.runs import RunRecord
+from bijou.core.runs import RunRecord, digest
 from bijou.core.types import AdapterSpec, Sample
 from bijou.skills import load as load_skill
 
@@ -60,6 +60,8 @@ def train_adapter(
 
     backend = backend or NanoDiffBackend(cfg)
     model = backend.build()
+    if backend.checkpoint_path is not None:
+        record.inputs["base_checkpoint"] = digest(backend.checkpoint_path)
 
     if full_finetune:
         for p in model.parameters():

@@ -9,7 +9,8 @@ runs = "runs"
 
 [backend]
 name = "nanodiff"
-checkpoint = "nanodiff-150m-alpaca"
+# A file in paths.base_checkpoints, fetched by just checkpoints. Empty means random weights.
+checkpoint = "nanodiff-150m-sft-alpaca"
 device = "cuda"
 dtype = "bfloat16"
 compile = false

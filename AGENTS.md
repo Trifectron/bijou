@@ -16,7 +16,10 @@ just doctor | env | hooks | vendor | bootstrap   # first run
 just check            # fmt-check, lint, layering, types, tests — the gate; CI and the hook run it
 just fmt              # format in place
 just setup            # deps without torch
-just setup-train      # deps with torch
+just setup-train      # deps with CUDA torch; setup-train-cpu for CPU torch
+just checkpoints      # the configured base checkpoint, from the Hugging Face Hub
+just lock             # re-resolve uv.lock after changing pyproject.toml dependencies
+just image [cpu]      # build the training image
 just config           # the resolved configuration
 just skill list | sample <name> | train <name>
 just evaluate         # score the composition matrix
@@ -42,8 +45,8 @@ bijou/experiments   the matrix runner and the bijou CLI
 third_party/        the nanoDiff submodule, pristine
 configs/            experiment configs that override bijou.toml
 runs/               immutable run records
-docs/               ROADMAP.md, ARCHITECTURE.md, experiments.md, decisions/
-deploy/             the training image
+docs/               ROADMAP.md, ARCHITECTURE.md, decisions/
+deploy/             the training image and how to run it
 ```
 
 ## The dependency rule
@@ -99,6 +102,10 @@ new setting goes in `bijou.toml` at its default in the same change. Reject a bad
 - Every experiment writes a `RunRecord`. A number that is not in a run record does not go in a
   table, a doc, or a message.
 - `train.seed` and `eval.seed` are never equal. The config rejects it.
+- `uv.lock` is committed and every install is `--locked`. A dependency change is a
+  `pyproject.toml` edit plus `just lock` in the same commit.
+- A configured base checkpoint that is missing is an error, never random weights. Random
+  weights are `backend.checkpoint = ""`, which the tests use.
 - A skill is data and a grader. A grader never loads a model, touches a GPU, or calls a network.
 - Errors are `BijouError` subclasses from `core.types`. No bare `Exception`, no `assert` for
   control flow outside tests.

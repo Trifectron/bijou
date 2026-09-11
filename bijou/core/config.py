@@ -40,10 +40,14 @@ class Paths(BaseModel):
 
 
 class Backend(BaseModel):
-    """Which base model the run uses. name selects the bijou.backends module."""
+    """Which base model the run uses. name selects the bijou.backends module.
+
+    checkpoint names a file in paths.base_checkpoints without its extension. An
+    empty checkpoint starts the model from random weights.
+    """
 
     name: str = "nanodiff"
-    checkpoint: str = "nanodiff-150m-alpaca"
+    checkpoint: str = "nanodiff-150m-sft-alpaca"
     device: str = "cuda"
     dtype: str = "bfloat16"
     compile: bool = False
