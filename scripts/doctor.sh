@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Checks that every tool the repo needs is installed and prints versions.
 set -uo pipefail
+cd "$(git rev-parse --show-toplevel)"
 ok=0
 need() {
   if command -v "$2" >/dev/null 2>&1; then
@@ -17,6 +18,24 @@ echo "repo:"
 [ -f third_party/nanoDiff/nanodiff/model.py ] && echo "  ok      submodule" || { echo "  MISSING submodule   run: just vendor"; ok=1; }
 [ -f .env ] && echo "  ok      .env" || echo "  MISSING .env        run: just env"
 [ "$(git config core.hooksPath)" = ".githooks" ] && echo "  ok      git hooks" || echo "  MISSING git hooks   run: just hooks"
+echo "python:"
+if uv sync --locked --inexact --check >/dev/null 2>&1; then
+  echo "  ok      dependencies"
+else
+  echo "  MISSING dependencies  run: just setup"; ok=1
+fi
+torch=$(uv run --no-sync python -c "import torch; print(torch.__version__)" 2>/dev/null)
+[ -n "$torch" ] && echo "  ok      torch $torch" || echo "  absent  torch       run: just setup-train (or setup-train-cpu)"
+echo "checkpoints:"
+checkpoint=$(uv run --no-sync python -c \
+  "from bijou.core.config import load; c = load(); print(c.paths.base_checkpoints / (c.backend.checkpoint + '.pt') if c.backend.checkpoint else '')" 2>/dev/null)
+if [ -z "$checkpoint" ]; then
+  echo "  none configured (random weights)"
+elif [ -f "$checkpoint" ]; then
+  echo "  ok      $checkpoint"
+else
+  echo "  absent  $checkpoint  run: just checkpoints"
+fi
 echo "gpu:"
 if command -v nvidia-smi >/dev/null 2>&1; then
   nvidia-smi --query-gpu=name,memory.total --format=csv,noheader | sed 's/^/  /'

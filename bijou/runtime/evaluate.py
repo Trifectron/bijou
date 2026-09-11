@@ -7,16 +7,23 @@ makes the composition matrix a comparison rather than a collection of scripts.
 
 from __future__ import annotations
 
-from pathlib import Path
+from collections.abc import Callable
 
 from bijou.adapters import io as adapter_io
 from bijou.adapters.lora import inject
 from bijou.backends.nanodiff import NanoDiffBackend
 from bijou.core.config import Config
 from bijou.core.determinism import seed_everything
-from bijou.core.types import AdapterState, GenerationRequest, Score, SkillReport
+from bijou.core.types import AdapterState, GenerationRequest, Sample, Score, SkillReport
 from bijou.routing.phase import PhaseRouter, PhaseSchedule
 from bijou.skills import load as load_skill
+
+BackendFactory = Callable[[Config], NanoDiffBackend]
+
+
+def default_backend(cfg: Config) -> NanoDiffBackend:
+    """The configured backend."""
+    return NanoDiffBackend(cfg)
 
 
 def prepare(
@@ -27,7 +34,7 @@ def prepare(
     model = backend.build()
     state = inject(model, cfg.adapter.targets)
     for name in adapters:
-        adapter_io.load(model, Path(cfg.paths.adapters) / f"{name}.pt")
+        adapter_io.load(model, cfg.adapter_path(name))
     return backend, state
 
 
@@ -38,11 +45,13 @@ def score_condition(
     skill_name: str,
     condition: str,
     schedule: PhaseSchedule,
+    samples: list[Sample] | None = None,
 ) -> tuple[SkillReport, list[Score]]:
-    """Generate and grade the eval split under one activation policy."""
+    """Generate and grade the eval split, or the given samples, under one activation policy."""
     seed_everything(cfg.eval.seed)
     skill = load_skill(skill_name)
-    samples = skill.generate(cfg.eval.eval_samples, cfg.eval.seed)
+    if samples is None:
+        samples = skill.generate(cfg.eval.eval_samples, cfg.eval.seed)
 
     blocks = cfg.sampling.gen_length // cfg.sampling.block_length
     schedule.validate_against_blocks(cfg.sampling.steps, blocks)

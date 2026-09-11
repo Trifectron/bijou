@@ -45,7 +45,11 @@ runs on every commit rather than on a GPU box occasionally.
 holds everything nanoDiff-shaped: `Config` construction, the SFT encoder, the masking objective,
 and the reverse process. Moving to LLaDA or Dream means writing a sibling module.
 
-`runtime` composes them. `experiments` runs the matrix and owns the CLI, and nothing imports it.
+`runtime` composes them: training, scoring one condition, and the tuned-prompt baseline, which
+picks a skill's instruction and worked examples on a dev split with its own seed. `experiments`
+runs the matrix and owns the CLI, and nothing imports it. `eval.conditions` selects the matrix
+rows: adapter subsets (the empty subset is zero-shot), the tuned prompt, and one full fine-tune
+per skill.
 
 ## Invariants
 

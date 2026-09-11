@@ -30,16 +30,33 @@ class IdTokenizer:
 
 
 def _upstream(backend: NanoDiffBackend, req: GenerationRequest) -> str:
-    """Upstream generate on the same request, decoded the way the backend decodes."""
+    """Upstream generate on the same request, decoded the way upstream chat.py decodes."""
     ids = backend.prompt_ids(req.prompt)
     prompt = torch.tensor([ids], device=backend.nano.device)
-    x = upstream_generate(
-        backend.model, prompt, req.gen_length, req.steps, req.block_length, temperature=0.0
-    )
+    with backend.autocast():
+        x = upstream_generate(
+            backend.model, prompt, req.gen_length, req.steps, req.block_length, temperature=0.0
+        )
     out = x[0, len(ids) :].tolist()
     if backend.eot_id in out:
         out = out[: out.index(backend.eot_id)]
-    return backend.enc.decode(out)
+    return backend.enc.decode([t for t in out if t < backend.eot_id])
+
+
+@pytest.mark.parametrize("temperature", [0.0, 0.8])
+def test_denoising_matches_upstream_ids_when_sampling(cfg, temperature):
+    torch.manual_seed(0)
+    backend = NanoDiffBackend(cfg, nano=tiny_config(), tokenizer=IdTokenizer())
+    model = backend.build()
+    prompt = torch.tensor([backend.prompt_ids("instruction")])
+    req = GenerationRequest(
+        prompt="", gen_length=16, steps=8, block_length=8, temperature=temperature
+    )
+    torch.manual_seed(0)
+    ours = backend.denoise(prompt, req)
+    torch.manual_seed(0)
+    theirs = upstream_generate(model, prompt, 16, 8, 8, temperature=temperature)
+    assert torch.equal(ours, theirs)
 
 
 @pytest.mark.parametrize("steps,gen_length,block_length", [(4, 16, 8), (6, 16, 4), (8, 16, 16)])

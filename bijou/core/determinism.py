@@ -33,7 +33,13 @@ def seed_everything(seed: int) -> None:
 
 
 def git_sha() -> str:
-    """The working tree's commit, with -dirty appended when it has changes."""
+    """The working tree's commit, with -dirty appended when it has changes.
+
+    BIJOU_GIT_SHA takes precedence, which is how an image with no .git reports its commit.
+    """
+    baked = os.environ.get("BIJOU_GIT_SHA")
+    if baked:
+        return baked
 
     def git(*args: str) -> str:
         return subprocess.check_output(["git", *args], text=True, stderr=subprocess.DEVNULL).strip()

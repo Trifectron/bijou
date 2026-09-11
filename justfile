@@ -7,7 +7,7 @@ default:
 
 # ---------- first run ----------
 
-# Check required tools and the submodule
+# Check required tools, the submodule, dependencies and checkpoints
 doctor:
     ./scripts/doctor.sh
 
@@ -26,20 +26,27 @@ vendor:
 
 # Install dependencies without the model stack (graders, schedules, config)
 setup:
-    uv sync --extra dev
+    uv sync --locked
 
-# Install everything including torch
+# Install everything, with CUDA torch
 setup-train:
-    uv sync --extra dev --extra train
+    uv sync --locked --extra train --extra cuda
 
-# Install with CPU-only torch. What CI uses; the CUDA wheel is 2 GB and CI has no device.
+# Install everything, with CPU torch. What CI uses; the CUDA wheels are gigabytes and CI has no device.
 setup-train-cpu:
-    uv sync --extra dev --extra train --index-strategy unsafe-best-match \
-        --extra-index-url https://download.pytorch.org/whl/cpu
+    uv sync --locked --extra train --extra cpu
+
+# Re-resolve uv.lock after changing dependencies in pyproject.toml
+lock:
+    uv lock
+
+# Download base checkpoints from the Hugging Face Hub; with no names, the configured one
+checkpoints *NAMES:
+    ./scripts/checkpoints.sh {{NAMES}}
 
 # Everything a fresh clone needs
 bootstrap: env hooks vendor setup
-    @echo "ready: 'just check' for the gate, 'just skill list' to see what exists"
+    @echo "ready: 'just check' for the gate; 'just setup-train' and 'just checkpoints' on a GPU box"
 
 # ---------- the gate ----------
 
@@ -80,7 +87,7 @@ check-model:
 
 # Tests that need a GPU and a base checkpoint
 test-gpu:
-    uv run pytest -q -m gpu
+    uv run pytest -q -m gpu -rs
 
 # ---------- experiments ----------
 
@@ -100,17 +107,25 @@ evaluate:
 runs:
     uv run bijou run list
 
-# Train every configured skill, then score the matrix
+# Train an adapter and a full fine-tune for every skill, then score the matrix
 matrix:
     #!/usr/bin/env bash
     set -euo pipefail
     for s in $(uv run bijou skill names); do
         uv run bijou skill train "$s"
+        uv run bijou skill train "$s" --full-finetune
     done
     uv run bijou evaluate
+
+# ---------- deploy ----------
+
+# Build the training image. TORCH=cpu builds one that runs without a GPU
+image TORCH="cuda":
+    docker build -f deploy/Dockerfile --build-arg TORCH={{TORCH}} \
+        --build-arg GIT_SHA=$(git rev-parse --short HEAD) -t bijou-training:{{TORCH}} .
 
 # ---------- housekeeping ----------
 
 clean:
-    rm -rf .venv .mypy_cache .pytest_cache .ruff_cache
+    rm -rf .venv .mypy_cache .pytest_cache .ruff_cache *.egg-info
     find . -name __pycache__ -type d -prune -exec rm -rf {} +

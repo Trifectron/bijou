@@ -2,14 +2,29 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 import pytest
 
 from bijou.core.config import Config
 
 
+class StubTokenizer:
+    """One token per character, with a reserved end-of-text id."""
+
+    eot_token = 50256
+
+    def encode(self, text: str) -> list[int]:
+        return [ord(c) % 5000 + 100 for c in text]
+
+    def decode(self, tokens: list[int]) -> str:
+        return "".join(chr((t - 100) % 5000) for t in tokens)
+
+
 @pytest.fixture
 def cfg() -> Config:
-    """A configuration small enough to run on CPU."""
+    """A configuration small enough to run on CPU, with no base checkpoint."""
     return Config(
         backend={"checkpoint": "", "device": "cpu", "dtype": "float32", "compile": False},
         train={
@@ -22,7 +37,20 @@ def cfg() -> Config:
         },
         sampling={"steps": 4, "gen_length": 16, "block_length": 8},
         eval={"eval_samples": 4, "seed": 1},
+        prompting={"shots": (0, 1), "dev_samples": 2, "seed": 2},
     )
+
+
+@pytest.fixture
+def make_backend() -> Callable[[Config], Any]:
+    """Builds a 2-layer nanoDiff backend with the stub tokenizer."""
+    pytest.importorskip("torch")
+    from bijou.backends.nanodiff import NanoDiffBackend, tiny_config
+
+    def build(cfg: Config) -> NanoDiffBackend:
+        return NanoDiffBackend(cfg, nano=tiny_config(), tokenizer=StubTokenizer())
+
+    return build
 
 
 @pytest.fixture

@@ -1,22 +1,26 @@
 # The training image. CPU checks run in CI without it; this is for a GPU box.
-FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+# TORCH selects the torch build: cuda, or cpu for an image that runs without a GPU.
+FROM ghcr.io/astral-sh/uv:0.11-python3.12-trixie-slim
 
-ENV DEBIAN_FRONTEND=noninteractive \
-    PYTHONUNBUFFERED=1 \
-    UV_LINK_MODE=copy
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        python3.12 python3.12-venv git curl ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+ARG TORCH=cuda
+ENV PYTHONUNBUFFERED=1 \
+    UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
+    PATH=/app/.venv/bin:$PATH
 
 WORKDIR /app
-COPY pyproject.toml bijou.toml ./
-RUN uv sync --extra train
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev --no-install-project --extra train --extra ${TORCH}
 
+COPY bijou.toml ./
 COPY bijou ./bijou
 COPY third_party ./third_party
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev --extra train --extra ${TORCH}
 
-ENTRYPOINT ["uv", "run", "bijou"]
+ARG GIT_SHA=unknown
+ENV BIJOU_GIT_SHA=${GIT_SHA}
+
+ENTRYPOINT ["bijou"]
 CMD ["--help"]

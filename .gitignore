@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
+*.egg-info/
 .venv/
 .mypy_cache/
 .pytest_cache/
@@ -11,4 +12,5 @@ runs/*
 *.pt
 *.safetensors
 .env
-*.egg-info/
+.env.*
+!.env.example

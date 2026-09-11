@@ -1,6 +1,6 @@
 """Adapter injection. Marked gpu only where a base checkpoint is needed.
 
-Step 0 of docs/experiments.md lives here: an injected model with an untrained
+Step 0 of docs/ROADMAP.md lives here: an injected model with an untrained
 adapter active must produce bit-identical output to the model without one.
 """
 
@@ -28,6 +28,11 @@ def test_injection_wraps_the_named_linears(tiny_model):
 def test_injection_refuses_unmatched_targets(tiny_model):
     with pytest.raises(AdapterError, match="no Linear matched"):
         inject(tiny_model, ("does.not.exist",))
+
+
+def test_targets_match_the_qualified_name_not_the_leaf(tiny_model):
+    with pytest.raises(AdapterError, match="no Linear matched"):
+        inject(tiny_model, ("mlp.qkv",))
 
 
 def test_double_injection_is_refused(tiny_model):

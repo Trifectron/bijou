@@ -8,7 +8,7 @@ infrastructure for step N+1 before step N reports.
 - [x] Package layout, dependency rule, gate, CLI
 - [x] Adapter injection, weights on disk, phase schedules, one skill, run records
 - [ ] Base checkpoints pulled and `just test-gpu` green
-- [ ] The reimplemented denoising loop matches upstream `generate` token for token with no
+- [x] The reimplemented denoising loop matches upstream `generate` token for token with no
       adapter active
 
 Until parity holds, every downstream number is uninterpretable.
@@ -18,7 +18,7 @@ Until parity holds, every downstream number is uninterpretable.
 Null hypothesis is a tuned prompt on the same base model, not zero-shot.
 
 - [ ] Skills: `json_extract`, `normalize`, `fn_call`
-- [ ] Conditions per skill: base zero-shot, base tuned prompt, LoRA, full fine-tune
+- [x] Conditions per skill: base zero-shot, base tuned prompt, LoRA, full fine-tune
 - [ ] Report each adapter's own score and its damage to the other skills' evals
 
 Kill criterion: no skill beats a tuned prompt outside seed variance.

@@ -88,7 +88,6 @@ class GenerationRequest:
     steps: int
     block_length: int | None = None
     temperature: float = 0.0
-    use_cache: bool = False
 
 
 class BijouError(Exception):
@@ -105,3 +104,7 @@ class AdapterError(BijouError):
 
 class BackendError(BijouError):
     """A backend could not build a model, train, or generate."""
+
+
+class ArtifactError(BijouError):
+    """A trained adapter or checkpoint that a run needs is not on disk."""

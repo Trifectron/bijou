@@ -73,13 +73,14 @@ def inject(
     """Wrap every Linear whose qualified name ends in a target. Call once."""
     state = state or AdapterState()
     wrapped = 0
-    for parent in list(model.modules()):
+    for parent_name, parent in list(model.named_modules()):
         for child_name, child in list(parent.named_children()):
             if isinstance(child, LoRALinear):
                 raise AdapterError("model is already injected")
             if not isinstance(child, nn.Linear):
                 continue
-            if any(child_name == t or t.endswith(f".{child_name}") for t in targets):
+            qualified = f"{parent_name}.{child_name}" if parent_name else child_name
+            if any(qualified == t or qualified.endswith(f".{t}") for t in targets):
                 setattr(parent, child_name, LoRALinear(child, state))
                 wrapped += 1
     if not wrapped:

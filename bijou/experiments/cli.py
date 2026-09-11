@@ -108,10 +108,19 @@ def skill_list() -> None:
     table.add_column("train", justify="right")
     table.add_column("eval", justify="right")
     table.add_column("adapter")
+    table.add_column("full fine-tune")
+
+    def mark(present: bool) -> str:
+        return "[green]trained[/green]" if present else "[dim]not trained[/dim]"
+
     for name in KNOWN:
-        path = cfg.paths.adapters / f"{name}.pt"
-        trained = "[green]trained[/green]" if path.exists() else "[dim]not trained[/dim]"
-        table.add_row(name, f"{cfg.train.train_samples:,}", f"{cfg.eval.eval_samples:,}", trained)
+        table.add_row(
+            name,
+            f"{cfg.train.train_samples:,}",
+            f"{cfg.eval.eval_samples:,}",
+            mark(cfg.adapter_path(name).exists()),
+            mark(cfg.full_finetune_path(name).exists()),
+        )
     console.print(table)
 
 

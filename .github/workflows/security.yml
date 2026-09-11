@@ -13,12 +13,17 @@ permissions:
   contents: read
 
 jobs:
+  # Audits the locked versions of everything the training image installs.
   audit:
     name: Dependency audit
     runs-on: ubuntu-latest
+    # paths-filter lists a pull request's files through the API.
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
+      - uses: actions/checkout@v7.0.1
+      - uses: dorny/paths-filter@v4.0.3
         id: filter
         with:
           filters: |
@@ -27,17 +32,32 @@ jobs:
               - uv.lock
               - .github/workflows/security.yml
       - if: github.event_name == 'schedule' || steps.filter.outputs.deps == 'true'
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10.1.0
       - if: github.event_name == 'schedule' || steps.filter.outputs.deps == 'true'
-        run: uvx pip-audit --strict --progress-spinner off .
+        run: |
+          uv export --locked --no-dev --no-emit-project --no-hashes --extra train --extra cuda \
+            > "$RUNNER_TEMP/requirements.txt"
+          uvx pip-audit --strict --progress-spinner off --disable-pip --no-deps \
+            -r "$RUNNER_TEMP/requirements.txt"
 
+  # The gitleaks CLI, verified against the release checksums. The gitleaks action needs a
+  # paid license on organization repositories; the CLI does not.
   secrets:
     name: Secret scan
     runs-on: ubuntu-latest
+    env:
+      GITLEAKS_VERSION: 8.30.1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install gitleaks
+        working-directory: ${{ runner.temp }}
+        run: |
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfLO "$base/$archive"
+          curl -sSfL "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt" | grep " $archive\$" | sha256sum -c -
+          tar -xzf "$archive" gitleaks
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - run: gitleaks git --redact --verbose --exit-code 1 .

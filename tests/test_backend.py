@@ -17,21 +17,40 @@ from bijou.core.types import AdapterSpec, BackendError, GenerationRequest  # noq
 from bijou.routing.phase import PhaseRouter, PhaseSchedule  # noqa: E402
 
 
-class StubTokenizer:
-    """One token per character, with a reserved end-of-text id."""
-
-    eot_token = 50256
-
-    def encode(self, text: str) -> list[int]:
-        return [ord(c) % 5000 + 100 for c in text]
-
-    def decode(self, tokens: list[int]) -> str:
-        return "".join(chr((t - 100) % 5000) for t in tokens)
-
-
 @pytest.fixture
-def backend(cfg):
-    return NanoDiffBackend(cfg, nano=tiny_config(), tokenizer=StubTokenizer())
+def backend(cfg, make_backend):
+    return make_backend(cfg)
+
+
+def _with_checkpoint(cfg, directory, name):
+    return cfg.model_copy(
+        update={
+            "backend": cfg.backend.model_copy(update={"checkpoint": name}),
+            "paths": cfg.paths.model_copy(update={"base_checkpoints": directory}),
+        }
+    )
+
+
+def test_a_missing_base_checkpoint_is_refused(cfg, make_backend, tmp_path):
+    backend = make_backend(_with_checkpoint(cfg, tmp_path, "absent"))
+    with pytest.raises(BackendError, match="just checkpoints"):
+        backend.build()
+
+
+def test_the_checkpoint_sets_the_architecture_and_weights(cfg, tmp_path):
+    from nanodiff.model import NanoDiff
+
+    torch.manual_seed(0)
+    saved = NanoDiff(tiny_config(n_layer=3))
+    torch.save({"model": saved.state_dict(), "config": tiny_config(n_layer=3)}, tmp_path / "t.pt")
+
+    backend = NanoDiffBackend(_with_checkpoint(cfg, tmp_path, "t"))
+    model = backend.build()
+
+    assert backend.nano.n_layer == 3
+    assert backend.nano.device == cfg.backend.device
+    loaded = model.state_dict()
+    assert all(torch.equal(v, loaded[k]) for k, v in saved.state_dict().items())
 
 
 def test_generating_before_build_is_refused(backend):
@@ -128,3 +147,27 @@ def test_inert_adapter_does_not_change_generation(backend, cfg):
     after = backend.generate(request)
 
     assert before == after
+
+
+def test_prompts_use_the_sft_template(cfg, make_backend):
+    from nanodiff.sft import SFT_PROMPT_NO_INPUT
+
+    roomy = cfg.model_copy(update={"train": cfg.train.model_copy(update={"prompt_len": 256})})
+    backend = make_backend(roomy)
+    ids = backend.prompt_ids("an instruction")
+    assert backend.enc.decode(ids) == SFT_PROMPT_NO_INPUT.format(instruction="an instruction")
+
+
+def test_a_long_prompt_keeps_the_response_cue(backend, cfg):
+    ids = backend.prompt_ids("word " * 500)
+    assert len(ids) == cfg.train.prompt_len
+    assert backend.enc.decode(ids).endswith("### Response:\n")
+
+
+def test_generation_restores_training_mode(backend, cfg):
+    model = backend.build()
+    model.train()
+    backend.generate(
+        GenerationRequest(prompt="x", gen_length=cfg.sampling.gen_length, steps=cfg.sampling.steps)
+    )
+    assert model.training

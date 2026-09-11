@@ -15,18 +15,18 @@ permissions:
 
 jobs:
   # The gate a developer and the pre-commit hook run. No model stack, so it is fast
-  # and runs on every push.
+  # and runs on every push. just setup installs with --locked, so a stale uv.lock fails here.
   check:
     name: Gate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           submodules: recursive
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v10.1.0
         with:
           enable-cache: true
-      - uses: extractions/setup-just@v3
+      - uses: extractions/setup-just@v4
       - run: just setup
       - run: just check
 
@@ -36,14 +36,14 @@ jobs:
     name: Model stack
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           submodules: recursive
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v10.1.0
         with:
           enable-cache: true
-      - uses: extractions/setup-just@v3
-      # CPU wheels only. The CUDA build is 2 GB and nothing here needs a device.
+      - uses: extractions/setup-just@v4
+      # CPU wheels only. The CUDA build is gigabytes and nothing here needs a device.
       - run: just setup-train-cpu
       - run: just check-model
 
@@ -53,7 +53,7 @@ jobs:
     name: Vendor pin
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           submodules: recursive
           fetch-depth: 0

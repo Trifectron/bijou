@@ -35,7 +35,8 @@ skills, graders, schedules and configuration are all testable without the model 
 gate runs on every commit instead of on a GPU box occasionally.
 
 ```bash
-just setup-train      # add torch when you have a GPU
+just setup-train      # add CUDA torch when you have a GPU
+just checkpoints      # the base model, from the Hugging Face Hub
 just skill train json_extract
 just evaluate
 ```

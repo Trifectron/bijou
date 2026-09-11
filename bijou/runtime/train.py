@@ -12,7 +12,7 @@ from bijou.adapters.lora import add, inject, trainable
 from bijou.backends.nanodiff import NanoDiffBackend
 from bijou.core.config import Config
 from bijou.core.determinism import seed_everything
-from bijou.core.runs import RunRecord
+from bijou.core.runs import RunRecord, digest
 from bijou.core.types import AdapterSpec, Sample
 from bijou.skills import load as load_skill
 
@@ -60,6 +60,8 @@ def train_adapter(
 
     backend = backend or NanoDiffBackend(cfg)
     model = backend.build()
+    if backend.checkpoint_path is not None:
+        record.inputs["base_checkpoint"] = digest(backend.checkpoint_path)
 
     if full_finetune:
         for p in model.parameters():
@@ -72,9 +74,13 @@ def train_adapter(
         state.set(skill_name)
         record.scores["trainable_params"] = float(trainable(model, skill_name))
 
+    lr = cfg.train.full_finetune_lr if full_finetune else cfg.train.lr
     optimizer = model.configure_optimizers(
-        cfg.train.weight_decay, cfg.train.lr, (0.9, 0.95), backend.nano.device
+        cfg.train.weight_decay, lr, (0.9, 0.95), backend.nano.device
     )
+    # Linear warmup from lr / warmup_steps to lr, then constant.
+    warmup = max(cfg.train.warmup_steps, 1)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda s: min(1.0, (s + 1) / warmup))
 
     step, total = 0, 0.0
     while step < cfg.train.max_steps:
@@ -87,6 +93,7 @@ def train_adapter(
                 [p for p in model.parameters() if p.requires_grad], cfg.train.grad_clip
             )
             optimizer.step()
+            scheduler.step()
             optimizer.zero_grad(set_to_none=True)
             total += loss.item()
             step += 1
@@ -94,12 +101,12 @@ def train_adapter(
     record.finish(final_loss=total / max(step, 1), steps=float(step))
     out = record.write(cfg.paths.runs)
 
-    path = cfg.paths.adapters / f"{skill_name}.pt"
-    if not full_finetune:
-        adapter_io.save(model, skill_name, path, spec_for(cfg, skill_name))
-    else:
-        path = cfg.paths.base_checkpoints / f"{skill_name}-full.pt"
+    if full_finetune:
+        path = cfg.full_finetune_path(skill_name)
         path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save({"model": model.state_dict()}, path)
+        torch.save({"model": model.state_dict(), "config": backend.nano}, path)
+    else:
+        path = cfg.adapter_path(skill_name)
+        adapter_io.save(model, skill_name, path, spec_for(cfg, skill_name))
     (out / "artifact").write_text(str(path))
     return path

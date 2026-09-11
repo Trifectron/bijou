@@ -9,7 +9,8 @@ runs = "runs"
 
 [backend]
 name = "nanodiff"
-checkpoint = "nanodiff-150m-alpaca"
+# A file in paths.base_checkpoints, fetched by just checkpoints. Empty means random weights.
+checkpoint = "nanodiff-150m-sft-alpaca"
 device = "cuda"
 dtype = "bfloat16"
 compile = false
@@ -22,6 +23,7 @@ targets = ["attn.qkv", "attn.proj", "mlp.w1", "mlp.w2", "mlp.w3"]
 
 [train]
 lr = 1e-3
+full_finetune_lr = 5e-5
 batch_size = 8
 max_steps = 2000
 warmup_steps = 100
@@ -37,9 +39,16 @@ steps = 64
 gen_length = 128
 block_length = 64
 temperature = 0.0
-use_cache = false
 
 [eval]
 eval_samples = 500
 seed = 1
 skills = ["json_extract"]
+# Rows of the matrix: every adapter subset, the tuned-prompt baseline, each full fine-tune.
+conditions = ["adapters", "tuned-prompt", "full-finetune"]
+
+[prompting]
+# Candidates are every skill instruction crossed with every shot count, scored on a dev split.
+shots = [0, 3]
+dev_samples = 100
+seed = 2
