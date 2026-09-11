@@ -100,6 +100,5 @@ class PhaseRouter:
         self._saved = dict(self.state.active)
         return self
 
-    def __exit__(self, *exc: object) -> bool:
+    def __exit__(self, *exc: object) -> None:
         self.state.active = self._saved
-        return False

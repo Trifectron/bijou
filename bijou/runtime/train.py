@@ -40,7 +40,12 @@ def _batches(
         )
 
 
-def train_adapter(cfg: Config, skill_name: str, full_finetune: bool = False) -> Path:
+def train_adapter(
+    cfg: Config,
+    skill_name: str,
+    full_finetune: bool = False,
+    backend: NanoDiffBackend | None = None,
+) -> Path:
     """Train one adapter and write its weights and a run record.
 
     full_finetune trains the base weights instead, which is the upper bound every
@@ -53,7 +58,7 @@ def train_adapter(cfg: Config, skill_name: str, full_finetune: bool = False) -> 
     skill = load_skill(skill_name)
     samples = skill.generate(cfg.train.train_samples, cfg.train.seed)
 
-    backend = NanoDiffBackend(cfg)
+    backend = backend or NanoDiffBackend(cfg)
     model = backend.build()
 
     if full_finetune:

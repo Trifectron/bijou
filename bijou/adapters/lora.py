@@ -62,9 +62,8 @@ class LoRALinear(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         out = self.base(x)
         for name, weight in self.state.active.items():
-            delta = self.deltas.get(name)
-            if delta is not None and weight:
-                out = out + weight * delta(x)
+            if weight and name in self.deltas:
+                out = out + weight * self.deltas[name](x)
         return out
 
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import secrets
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -48,9 +49,10 @@ class RunRecord:
 
     @classmethod
     def start(cls, kind: str, config: dict[str, Any], run_id: str | None = None) -> RunRecord:
+        # The suffix keeps two runs started in the same second from colliding.
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         return cls(
-            run_id=run_id or f"{kind}-{stamp}",
+            run_id=run_id or f"{kind}-{stamp}-{secrets.token_hex(3)}",
             kind=kind,
             config=config,
             started_at=datetime.now(UTC).isoformat(),
@@ -71,8 +73,10 @@ class RunRecord:
 
 
 def load_records(runs_dir: Path) -> list[RunRecord]:
-    """Every run record under runs_dir, oldest first."""
-    records = []
-    for path in sorted(runs_dir.glob("*/record.json")):
-        records.append(RunRecord(**json.loads(path.read_text())))
-    return records
+    """Every run record under runs_dir, oldest first by start time.
+
+    Run ids carry a random suffix, so filename order does not track creation
+    order for runs started in the same second.
+    """
+    records = [RunRecord(**json.loads(p.read_text())) for p in runs_dir.glob("*/record.json")]
+    return sorted(records, key=lambda r: (r.started_at, r.run_id))

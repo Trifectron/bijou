@@ -6,8 +6,18 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
+  # The gate a developer and the pre-commit hook run. No model stack, so it is fast
+  # and runs on every push.
   check:
+    name: Gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,6 +28,33 @@ jobs:
           enable-cache: true
       - uses: extractions/setup-just@v3
       - run: just setup
-      # The same recipe a developer and the pre-commit hook run. No GPU here, so
-      # the model stack is absent and gpu-marked tests are skipped.
       - run: just check
+
+  # The adapter and backend paths need torch but not a GPU. Separated because
+  # installing torch costs minutes and the gate above must stay fast.
+  model:
+    name: Model stack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - uses: extractions/setup-just@v3
+      # CPU wheels only. The CUDA build is 2 GB and nothing here needs a device.
+      - run: just setup-train-cpu
+      - run: just check-model
+
+  # A vendored submodule that moved without a matching parity test is a silent
+  # behaviour change in the one dependency we reimplement.
+  vendor:
+    name: Vendor pin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - run: ./scripts/check-vendor.sh

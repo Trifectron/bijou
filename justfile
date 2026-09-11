@@ -32,6 +32,11 @@ setup:
 setup-train:
     uv sync --extra dev --extra train
 
+# Install with CPU-only torch. What CI uses; the CUDA wheel is 2 GB and CI has no device.
+setup-train-cpu:
+    uv sync --extra dev --extra train --index-strategy unsafe-best-match \
+        --extra-index-url https://download.pytorch.org/whl/cpu
+
 # Everything a fresh clone needs
 bootstrap: env hooks vendor setup
     @echo "ready: 'just check' for the gate, 'just skill list' to see what exists"
@@ -57,12 +62,21 @@ lint:
 deps:
     ./scripts/check-deps.sh
 
+# The vendored submodule pin moved only alongside a test change
+vendor-check:
+    ./scripts/check-vendor.sh
+
 types:
     uv run mypy
 
-# CPU tests only. Anything needing a GPU is marked and skipped here.
+# Everything not needing a GPU. Tests importing torch skip when it is absent.
 test:
     uv run pytest -q -m "not gpu"
+
+# The same tests with the model stack installed, so nothing skips silently.
+check-model:
+    uv run python -c "import torch; print('torch', torch.__version__)"
+    uv run pytest -q -m "not gpu" --no-header -rs
 
 # Tests that need a GPU and a base checkpoint
 test-gpu:

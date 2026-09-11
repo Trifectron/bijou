@@ -19,9 +19,11 @@ from bijou.routing.phase import PhaseRouter, PhaseSchedule
 from bijou.skills import load as load_skill
 
 
-def prepare(cfg: Config, adapters: list[str]) -> tuple[NanoDiffBackend, AdapterState]:
+def prepare(
+    cfg: Config, adapters: list[str], backend: NanoDiffBackend | None = None
+) -> tuple[NanoDiffBackend, AdapterState]:
     """Build a model with the named adapters attached but nothing active."""
-    backend = NanoDiffBackend(cfg)
+    backend = backend or NanoDiffBackend(cfg)
     model = backend.build()
     state = inject(model, cfg.adapter.targets)
     for name in adapters:

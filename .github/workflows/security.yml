@@ -1,0 +1,43 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, so advisories surface without waiting for a change.
+    - cron: "0 9 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            deps:
+              - pyproject.toml
+              - uv.lock
+              - .github/workflows/security.yml
+      - if: github.event_name == 'schedule' || steps.filter.outputs.deps == 'true'
+        uses: astral-sh/setup-uv@v5
+      - if: github.event_name == 'schedule' || steps.filter.outputs.deps == 'true'
+        run: uvx pip-audit --strict --progress-spinner off .
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

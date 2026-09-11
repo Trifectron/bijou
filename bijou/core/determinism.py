@@ -34,11 +34,14 @@ def seed_everything(seed: int) -> None:
 
 def git_sha() -> str:
     """The working tree's commit, with -dirty appended when it has changes."""
+
+    def git(*args: str) -> str:
+        return subprocess.check_output(["git", *args], text=True, stderr=subprocess.DEVNULL).strip()
+
     try:
-        sha = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
-        dirty = subprocess.check_output(["git", "status", "--porcelain"], text=True)
-        return f"{sha}-dirty" if dirty.strip() else sha
-    except (subprocess.CalledProcessError, FileNotFoundError):
+        sha = git("rev-parse", "--short", "HEAD")
+        return f"{sha}-dirty" if git("status", "--porcelain") else sha
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
         return "unknown"
 
 

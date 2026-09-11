@@ -13,9 +13,8 @@ test asserts it.
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Callable
-from pathlib import Path
+from typing import Protocol
 
 import torch
 import torch.nn.functional as F
@@ -23,12 +22,7 @@ import torch.nn.functional as F
 from bijou.core.config import Config
 from bijou.core.types import BackendError, GenerationRequest
 
-_VENDOR = Path(__file__).resolve().parents[2] / "third_party" / "nanoDiff"
-if str(_VENDOR) not in sys.path:
-    sys.path.insert(0, str(_VENDOR))
-
 try:
-    import tiktoken
     from nanodiff.config import Config as NanoConfig
     from nanodiff.diffusion import diffusion_loss, forward_process
     from nanodiff.model import NanoDiff
@@ -37,9 +31,19 @@ try:
 except ImportError as exc:  # pragma: no cover
     raise BackendError("nanoDiff is not importable; run: git submodule update --init") from exc
 
-__all__ = ["NanoDiffBackend", "tiny_config"]
+__all__ = ["NanoDiffBackend", "Tokenizer", "tiny_config"]
 
 StepHook = Callable[[int, int], object]
+
+
+class Tokenizer(Protocol):
+    """What the backend needs of a tokenizer. tiktoken's gpt2 encoding satisfies it."""
+
+    eot_token: int
+
+    def encode(self, text: str) -> list[int]: ...
+
+    def decode(self, tokens: list[int]) -> str: ...
 
 
 def tiny_config(**overrides: object) -> NanoConfig:
@@ -59,12 +63,30 @@ def tiny_config(**overrides: object) -> NanoConfig:
 class NanoDiffBackend:
     """Builds, trains and samples a nanoDiff model. Satisfies Backend."""
 
-    def __init__(self, cfg: Config, nano: NanoConfig | None = None) -> None:
+    def __init__(
+        self, cfg: Config, nano: NanoConfig | None = None, tokenizer: Tokenizer | None = None
+    ) -> None:
         self.cfg = cfg
         self.nano = nano or self._nano_config()
-        self.enc = tiktoken.get_encoding("gpt2")
-        self.eot_id = self.enc.eot_token
         self.model: NanoDiff | None = None
+        self._enc = tokenizer
+
+    @property
+    def enc(self) -> Tokenizer:
+        """The tokenizer, built on first use.
+
+        tiktoken fetches its vocabulary over the network the first time, so
+        construction is deferred and a tokenizer can be injected instead.
+        """
+        if self._enc is None:
+            import tiktoken
+
+            self._enc = tiktoken.get_encoding("gpt2")
+        return self._enc
+
+    @property
+    def eot_id(self) -> int:
+        return self.enc.eot_token
 
     def _nano_config(self) -> NanoConfig:
         return NanoConfig(

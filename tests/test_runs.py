@@ -2,6 +2,7 @@
 
 import pytest
 
+from bijou.core.determinism import git_sha
 from bijou.core.runs import RunError, RunRecord, load_records
 
 
@@ -23,3 +24,18 @@ def test_overwriting_a_run_is_refused(tmp_path):
     record.write(tmp_path)
     with pytest.raises(RunError, match="already exists"):
         RunRecord.start("train", {}, run_id="fixed").write(tmp_path)
+
+
+def test_two_runs_in_the_same_second_do_not_collide(tmp_path):
+    first = RunRecord.start("train", {})
+    second = RunRecord.start("train", {})
+    assert first.run_id != second.run_id
+    first.write(tmp_path)
+    second.write(tmp_path)
+    assert len(load_records(tmp_path)) == 2
+
+
+def test_git_sha_is_quiet_outside_a_repository(tmp_path, monkeypatch, capfd):
+    monkeypatch.chdir(tmp_path)
+    assert git_sha() == "unknown"
+    assert capfd.readouterr().err == ""
