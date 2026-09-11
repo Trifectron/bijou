@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The vendored nanoDiff is reimplemented in bijou/backends, so a moved pin can change
+# The vendored nanoDiff is reimplemented in apps/engine/backends, so a moved pin can change
 # behaviour silently. A commit that moves it must also touch a parity test.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -17,7 +17,7 @@ before=$(git ls-tree "origin/$base" third_party/nanoDiff | awk '{print $3}')
 [ "$before" = "$pinned" ] && { echo "pin unchanged"; exit 0; }
 
 echo "pin moved ${before:0:8} -> ${pinned:0:8}"
-if git diff --name-only "origin/$base"...HEAD | grep -qE '^tests/'; then
+if git diff --name-only "origin/$base"...HEAD | grep -qE '^apps/engine/tests/'; then
   echo "a test changed alongside it"
   exit 0
 fi

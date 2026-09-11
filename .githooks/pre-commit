@@ -5,8 +5,8 @@ cd "$(git rev-parse --show-toplevel)"
 changed=$(git diff --cached --name-only)
 touched() { grep -qE "$1" <<<"$changed"; }
 
-touched '^(bijou/|tests/|pyproject\.toml|uv\.lock|scripts/)' && { echo "pre-commit: just check"; just check; }
-touched '^bijou\.toml$' && { echo "pre-commit: just config"; just config >/dev/null; }
+touched '^(apps/|pyproject\.toml|uv\.lock|scripts/)' && { echo "pre-commit: just check"; just check; }
+touched '^bijou\.toml$' && { echo "pre-commit: config loads"; just config >/dev/null; }
 touched '^justfile$' && { echo "pre-commit: just --list"; just --list >/dev/null; }
 touched '^(scripts/|\.githooks/)' && { echo "pre-commit: bash -n"; for f in scripts/*.sh .githooks/*; do bash -n "$f"; done; }
 :

@@ -24,19 +24,19 @@ hooks:
 vendor:
     git submodule update --init --recursive
 
-# Install dependencies without the model stack (graders, schedules, config)
+# Install every app without the model stack (graders, schedules, config, the agent, evals)
 setup:
-    uv sync --locked
+    uv sync --locked --all-packages
 
-# Install everything, with CUDA torch
+# Install every app, with CUDA torch for the engine
 setup-train:
-    uv sync --locked --extra train --extra cuda
+    uv sync --locked --all-packages --extra train --extra cuda
 
-# Install everything, with CPU torch. What CI uses; the CUDA wheels are gigabytes and CI has no device.
+# Install every app, with CPU torch. What CI uses; the CUDA wheels are gigabytes and CI has no device.
 setup-train-cpu:
-    uv sync --locked --extra train --extra cpu
+    uv sync --locked --all-packages --extra train --extra cpu
 
-# Re-resolve uv.lock after changing dependencies in pyproject.toml
+# Re-resolve uv.lock after changing dependencies in any pyproject.toml
 lock:
     uv lock
 
@@ -50,9 +50,9 @@ bootstrap: env hooks vendor setup
 
 # ---------- console ----------
 
-# Developer console: run recipes, stream their logs, watch the GPU and artifacts
+# Developer console: run recipes, stream their logs, watch the GPU, services and artifacts
 console:
-    uv run bijou console
+    uv run console
 
 alias cli := console
 
@@ -73,7 +73,7 @@ fmt-check:
 lint:
     uvx ruff check .
 
-# The dependency rule from pyproject.toml [tool.importlinter]
+# The dependency rule from pyproject.toml [tool.importlinter], between apps and inside each
 deps:
     ./scripts/check-deps.sh
 
@@ -97,33 +97,75 @@ check-model:
 test-gpu:
     uv run pytest -q -m gpu -rs
 
+# ---------- services ----------
+
+# The engine over HTTP on agent.http: the agent, with the skill bank in process by default
+serve:
+    uv run engine serve
+
+# The skill bank alone over HTTP on serve.port, for an agent elsewhere (agent.skills.mode = http)
+serve-skills:
+    uv run engine serve-skills
+
+# Playwright MCP over Streamable HTTP, the browser the agent drives. Needs node
+browser PORT="8931":
+    npx -y @playwright/mcp@latest --port {{PORT}}
+
+# ---------- the agent ----------
+
+# Run one request: plan, equip skills, act, answer
+agent +REQUEST:
+    uv run engine run "{{REQUEST}}"
+
+# The engine command: run, confirm, serve, skills, sessions, patterns, skill, collect, runs
+engine *ARGS:
+    uv run engine {{ARGS}}
+
+# Sessions: list, show <id>, search <text>
+sessions *ARGS:
+    uv run engine sessions {{ARGS}}
+
+# Recurring work no skill covers; --write turns each into a skill spec for review
+patterns *ARGS:
+    uv run engine patterns {{ARGS}}
+
+# Skill specs: list, new, run <spec>. Collection needs an approved spec and the teacher model
+collect *ARGS:
+    uv run engine collect {{ARGS}}
+
 # ---------- experiments ----------
 
 # Resolved configuration
 config:
-    uv run bijou config
+    uv run engine config
 
 # Skills: list, sample, train
 skill *ARGS:
-    uv run bijou skill {{ARGS}}
+    uv run engine skill {{ARGS}}
 
 # Score the composition matrix
 evaluate:
-    uv run bijou evaluate
+    uv run engine evaluate
 
 # Run records
 runs:
-    uv run bijou run list
+    uv run engine runs list
 
 # Train an adapter and a full fine-tune for every skill, then score the matrix
 matrix:
     #!/usr/bin/env bash
     set -euo pipefail
-    for s in $(uv run bijou skill names); do
-        uv run bijou skill train "$s"
-        uv run bijou skill train "$s" --full-finetune
+    for s in $(uv run engine skill names); do
+        uv run engine skill train "$s"
+        uv run engine skill train "$s" --full-finetune
     done
-    uv run bijou evaluate
+    uv run engine evaluate
+
+# ---------- evals ----------
+
+# Evals: run, compare, baseline, cases. run needs just serve
+evals *ARGS:
+    uv run evals {{ARGS}}
 
 # ---------- deploy ----------
 
@@ -135,5 +177,6 @@ image TORCH="cuda":
 # ---------- housekeeping ----------
 
 clean:
-    rm -rf .venv .mypy_cache .pytest_cache .ruff_cache *.egg-info
+    rm -rf .venv .mypy_cache .pytest_cache .ruff_cache .import_linter_cache
+    find . -name '*.egg-info' -type d -prune -exec rm -rf {} +
     find . -name __pycache__ -type d -prune -exec rm -rf {} +

@@ -1,11 +1,9 @@
 # Bijou — agent guide
 
-Modular capability deltas for masked diffusion language models. Read `docs/ROADMAP.md` for what
-we are testing and in what order, and `docs/ARCHITECTURE.md` for the package boundaries and the
-dependency rule. Do not contradict either — propose an edit to the doc instead.
-
-This is a research repo with kill criteria, not a product. A change that does not move an
-experiment forward, or make one reproducible, probably does not belong.
+LoRA skills on a masked diffusion language model, and an agent that plans with an LLM and equips
+those skills per step. Read `docs/ROADMAP.md` for what is being built and tested in what order,
+`docs/ARCHITECTURE.md` for the packages, their boundaries and invariants, and `docs/decisions/`
+for why. Do not contradict them; propose an edit to the doc instead.
 
 ## Commands
 
@@ -15,17 +13,24 @@ experiment forward, or make one reproducible, probably does not belong.
 just doctor | env | hooks | vendor | bootstrap   # first run
 just check            # fmt-check, lint, layering, types, tests — the gate; CI and the hook run it
 just fmt              # format in place
-just setup            # deps without torch
-just setup-train      # deps with CUDA torch; setup-train-cpu for CPU torch
+just setup            # every app, no torch
+just setup-train      # plus CUDA torch for the engine; setup-train-cpu for CPU torch
 just checkpoints      # the configured base checkpoint, from the Hugging Face Hub
-just lock             # re-resolve uv.lock after changing pyproject.toml dependencies
-just image [cpu]      # build the training image
+just lock             # re-resolve uv.lock after changing any pyproject.toml
 just console          # the developer console (TUI); alias: just cli
-just config           # the resolved configuration
+
+just serve            # the engine over HTTP: the agent, with the skill bank in process
+just serve-skills     # the skill bank alone, for an agent elsewhere
+just browser          # Playwright MCP, the browser the agent drives
+just agent "..."      # one request: plan, equip skills, act, answer
+just engine ...       # the engine command: run, confirm, skills, sessions, patterns, skill, ...
+just patterns --write # recurring uncovered work as skill specs for review
+just collect ...      # list, new, run <spec>: approved spec -> dataset skill
+just evals ...        # run, compare, baseline, cases, against a serving engine
+
 just skill list | sample <name> | train <name>
 just evaluate         # score the composition matrix
 just runs             # every run record
-just matrix           # train every configured skill, then score the matrix
 just test-gpu         # the tests needing a GPU and a base checkpoint
 ```
 
@@ -33,85 +38,87 @@ A change is not done until `just check` passes.
 
 ## Layout
 
-One repo, one package. Language is never a folder and neither is model size.
+One repo, a uv workspace of three apps. Language is never a folder and neither is model size.
 
 ```
-bijou/core          types, protocols, config, determinism, run records. Imports nothing else.
-bijou/adapters      the AdapterSite seam: LoRA injection, weights on disk
-bijou/routing       the ActivationPolicy seam: phase schedules and the router
-bijou/skills        one module per skill, each generate(n, seed) and grade(sample, output)
-bijou/backends      the only package importing third_party.nanoDiff
-bijou/runtime       composes a backend, adapters and a policy into train and evaluate
-bijou/experiments   the matrix runner and the bijou CLI
-third_party/        the nanoDiff submodule, pristine
-configs/            experiment configs that override bijou.toml
-runs/               immutable run records
-docs/               ROADMAP.md, ARCHITECTURE.md, decisions/
-deploy/             the training image and how to run it
+apps/engine     everything that runs: the diffusion model, its skill bank, the agent, collection,
+                the research matrix, the HTTP surface and the engine command
+apps/evals      golden cases against a serving engine, suites, baseline gate
+apps/cli        the developer console
+third_party/    the nanoDiff submodule, pristine
+docs/           ROADMAP.md, ARCHITECTURE.md, decisions/
+deploy/         the engine image
+data/           collected skills and proposals (ignored)
+runs/           immutable run records (ignored)
 ```
+
+Each app directory is its own package (`apps/engine` is `engine`), with its own
+`pyproject.toml` and `tests/`. A new subpackage is added to that app's `[tool.setuptools]`
+packages.
 
 ## The dependency rule
 
-A package may import one listed below it. A sibling is never imported.
+Apps never import each other. evals reaches the engine over HTTP (`/run`); the console runs
+`just` recipes. Inside the engine a package imports one below it, never a sibling:
 
 ```
-experiments -> runtime -> {adapters, routing, skills, backends} -> core
+commands
+routes | experiments
+wiring
+agent | model | tools | stores | patterns | collect
+runtime
+{adapters, routing, skills} and backends
+core
 ```
 
-`scripts/check-deps.sh` runs the contracts in `pyproject.toml` under `[tool.importlinter]`, in
-`just check`, the pre-commit hook, and CI. Adding an edge means editing the contracts and
-`docs/ARCHITECTURE.md` in the same change.
+`scripts/check-deps.sh` runs the contracts in the root `pyproject.toml` under
+`[tool.importlinter]`. Adding an edge means editing the contracts and `docs/ARCHITECTURE.md` in the
+same change.
 
-`bijou.skills` imports no torch, which is what keeps graders unit-testable in milliseconds.
-`bijou.adapters` and `bijou.routing` never import each other; `AdapterState` lives in `core` so a
-routing policy is testable with no adapter implementation present.
+`engine.skills` imports no torch and no network client. Only `engine.backends` imports nanoDiff.
+The agent (`agent`, `tools`, `stores`, `patterns`) never imports the model stack; it reaches the
+diffusion model only through `SkillRuntime`. Only `model`, `tools` and `collect` open connections.
 
-## The three seams
+## The seams
 
-Everything else is infrastructure for these. Change them deliberately.
+All in `engine/core/protocols.py`. The diffusion model: `AdapterSite`, `ActivationPolicy`,
+`Grader`, `Skill`, `Backend`. The agent: `ChatModel`, `SkillRuntime`, `Tool`, `Policy`,
+`TraceSink`, `SessionStore`, each with a double in `engine/core/doubles.py`. A new replaceable
+dependency gets a protocol and a double in the same change.
 
-`core.protocols.AdapterSite` — how a delta attaches to one frozen module. LoRA is one
-implementation. A second one costs nothing outside `bijou/adapters`.
-
-`core.protocols.ActivationPolicy` — what is live at denoising step t. Static application is a
-schedule with one phase, so the static and phase-routed conditions run the same code path and the
-comparison stays controlled.
-
-`core.protocols.Grader` — `score(sample, output) -> Score`. One signature for every skill, which
-is what makes the composition matrix a loop instead of N scripts.
-
-`Backend` is the fourth interface. It exists so a move to a larger diffusion LM is a sibling
-module, not a rewrite.
+`SkillRuntime` has two implementations: `LocalSkillRuntime`, the bank in this process, and
+`HttpSkillRuntime`, a bank served by `engine serve-skills`. `agent.skills.mode` picks one.
 
 ## Config
 
-Two layers, lowest first: `bijou.toml`, which is committed, and `BIJOU_<SECTION>__<KEY>` from the
-environment, which wins. `BIJOU_CONFIG_FILE` points elsewhere.
+One `bijou.toml`, committed, shared by every app; each reads only its own tables (the engine the
+unprefixed model tables plus `[serve]`, `[collect]` and `[agent.*]`, evals `[evals]`, the console
+`[console]`). `BIJOU_<TABLE>__<KEY>` from the environment wins. `BIJOU_CONFIG_FILE` points
+elsewhere.
 
-**Every tunable value goes in `bijou.toml`.** `.env` holds only secrets and per-machine paths. A
-new setting goes in `bijou.toml` at its default in the same change. Reject a bad combination in
-`Config.validate_combinations` at load rather than clamping it at use.
+**Every tunable value goes in `bijou.toml`.** `.env` holds only secrets and per-machine URLs; a new
+one goes in `.env.example` too. A new setting goes in `bijou.toml` at its default in the same
+change. Reject a bad combination at load rather than clamping it at use.
 
 ## Rules
 
-- Lints are the law (`[tool.ruff.lint]` in `pyproject.toml`): no bare `print` outside the CLI,
-  annotations on every function, imports sorted. `mypy --strict` covers `core`, `routing` and
-  `skills`. Fix at the source rather than adding a `noqa`; a real exception gets the narrowest
-  scope and a one-line reason.
-- No global mutable state except `AdapterState`, which is passed by reference and owned by the
-  model it was injected into.
-- Every experiment writes a `RunRecord`. A number that is not in a run record does not go in a
-  table, a doc, or a message.
-- `train.seed` and `eval.seed` are never equal. The config rejects it.
-- `uv.lock` is committed and every install is `--locked`. A dependency change is a
-  `pyproject.toml` edit plus `just lock` in the same commit.
-- A configured base checkpoint that is missing is an error, never random weights. Random
-  weights are `backend.checkpoint = ""`, which the tests use.
-- A skill is data and a grader. A grader never loads a model, touches a GPU, or calls a network.
-- Errors are `BijouError` subclasses from `core.types`. No bare `Exception`, no `assert` for
-  control flow outside tests.
-- Never edit `third_party/`. Update by moving the submodule; upstream behaviour we depend on gets
-  a parity test in `tests/`.
+- Lints are the law (`[tool.ruff.lint]`): no bare `print` outside commands, annotations on every
+  function, imports sorted. `mypy --strict` covers the engine's `core`, `routing`, `skills`,
+  `agent`, `tools`, `stores`, `patterns`, the chat and skill clients, and evals. Fix at the
+  source rather than adding a `noqa`.
+- No global mutable state except `AdapterState`. Per-run state goes in `RequestContext`.
+- Every train, evaluate and collect run writes a `RunRecord`. A number that is not in a run
+  record or an eval report does not go in a table, a doc, or a message.
+- `train.seed` and `eval.seed` are never equal. Dataset skill splits are files, fixed at collection.
+- `uv.lock` is committed and every install is `--locked`.
+- A configured base checkpoint that is missing is an error, never random weights.
+- A grader never loads a model, touches a GPU, or calls a network.
+- Every write-class tool goes through `Policy`; anything consequential is confirmed against its
+  exact payload. A skill spec is approved by a person, never by code.
+- Agent answers are model output and never become skill data except through a reviewed spec.
+- Errors are `EngineError` subclasses from `engine/core/types/errors.py` (`EvalsError` in evals).
+  No bare `Exception` raised, no `assert` for control flow outside tests.
+- Never edit `third_party/`. Upstream behaviour we depend on gets a parity test.
 - Comment style: see the `comment-style` skill. Plain ASCII, state what the code does, no
   rationale — the why belongs in the commit message and in `docs/decisions/`.
 - Commit messages: imperative subject at most 72 chars, body explains why.
@@ -125,6 +132,4 @@ cleanup passes.
 
 ## Out of scope
 
-See "Out of scope" in `docs/ROADMAP.md`. The agent harness — planner, sub-agents, computer use,
-MCP, browser sessions, scheduling — is not built here. Do not build toward it without an explicit
-decision recorded in `docs/decisions/`.
+See "Out of scope" in `docs/ROADMAP.md`.

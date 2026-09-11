@@ -18,7 +18,7 @@ base model is a new file. A name that describes today's implementation will be a
 quarter.
 
 **Registries over enumeration.** If adding a skill means editing an if-chain in three files, the
-shape is wrong. One module per case plus one registry entry is the target -- `bijou/skills` is the
+shape is wrong. One module per case plus one registry entry is the target -- `apps/engine/skills` is the
 model. Ask: what does adding the *next* one cost?
 
 **Reuse.** Duplicated logic across packages usually means the shared thing belongs one layer down.
