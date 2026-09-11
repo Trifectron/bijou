@@ -20,10 +20,10 @@ jobs:
     name: Training image
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           submodules: recursive
-      - uses: dorny/paths-filter@v4
+      - uses: dorny/paths-filter@v4.0.3
         id: filter
         with:
           filters: |
@@ -36,15 +36,15 @@ jobs:
               - bijou/**
               - third_party/**
       - if: steps.filter.outputs.image == 'true' || github.event_name != 'push'
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@v4.3.0
       - if: steps.filter.outputs.image == 'true' || github.event_name != 'push'
-        uses: docker/login-action@v4
+        uses: docker/login-action@v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - if: steps.filter.outputs.image == 'true' || github.event_name != 'push'
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@v6.2.0
         id: meta
         with:
           images: ghcr.io/${{ github.repository }}/training
@@ -53,7 +53,7 @@ jobs:
             type=semver,pattern={{version}}
             type=sha
       - if: steps.filter.outputs.image == 'true' || github.event_name != 'push'
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@v7.3.0
         with:
           context: .
           file: deploy/Dockerfile

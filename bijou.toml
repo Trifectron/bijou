@@ -38,7 +38,6 @@ steps = 64
 gen_length = 128
 block_length = 64
 temperature = 0.0
-use_cache = false
 
 [eval]
 eval_samples = 500

@@ -30,6 +30,11 @@ def test_injection_refuses_unmatched_targets(tiny_model):
         inject(tiny_model, ("does.not.exist",))
 
 
+def test_targets_match_the_qualified_name_not_the_leaf(tiny_model):
+    with pytest.raises(AdapterError, match="no Linear matched"):
+        inject(tiny_model, ("mlp.qkv",))
+
+
 def test_double_injection_is_refused(tiny_model):
     inject(tiny_model, ("attn.qkv",))
     with pytest.raises(AdapterError, match="already injected"):

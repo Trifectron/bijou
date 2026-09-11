@@ -29,7 +29,12 @@ try:
     from nanodiff.diffusion import diffusion_loss, forward_process
     from nanodiff.model import NanoDiff
     from nanodiff.sampler import _transfer_schedule
-    from nanodiff.sft import encode_sft_example, sft_forward_process, sft_loss
+    from nanodiff.sft import (
+        SFT_PROMPT_NO_INPUT,
+        encode_sft_example,
+        sft_forward_process,
+        sft_loss,
+    )
 except ImportError as exc:  # pragma: no cover
     raise BackendError("nanoDiff is not importable; run: git submodule update --init") from exc
 
@@ -157,25 +162,53 @@ class NanoDiffBackend:
         x_t, mask, t = forward_process(x0, self.nano.mask_token_id)
         return diffusion_loss(self.model(x_t), x0, mask, t)
 
+    def prompt_ids(self, instruction: str) -> list[int]:
+        """The instruction in the SFT template, truncated from the left to train.prompt_len."""
+        ids = self.enc.encode(SFT_PROMPT_NO_INPUT.format(instruction=instruction))
+        return ids[-self.cfg.train.prompt_len :]
+
     @torch.no_grad()
     def generate(self, req: GenerationRequest, on_step: StepHook | None = None) -> str:
-        """Low-confidence remasking with semi-autoregressive blocks.
+        """The response to one instruction, decoded up to the first end-of-text."""
+        prompt = torch.tensor([self.prompt_ids(req.prompt)], device=self.nano.device)
+        out = self.denoise(prompt, req, on_step)[0, prompt.shape[1] :].tolist()
+        if self.eot_id in out:
+            out = out[: out.index(self.eot_id)]
+        return self.enc.decode([t for t in out if t < self.eot_id])
 
-        on_step(step, total_steps) runs before every forward, which is where an
-        ActivationPolicy changes the live adapter set. No prefix cache: the cache
-        is invalid when adapters change mid-block.
+    @torch.no_grad()
+    def denoise(
+        self, prompt_ids: torch.Tensor, req: GenerationRequest, on_step: StepHook | None = None
+    ) -> torch.Tensor:
+        """Low-confidence remasking with semi-autoregressive blocks, as upstream generate.
+
+        Returns the prompt followed by the generated ids. on_step(step, total_steps)
+        runs before every denoising step, which is where an ActivationPolicy changes
+        the live adapter set. No prefix cache: the cache is invalid when adapters
+        change mid-block.
         """
         if self.model is None:
             raise BackendError("build the model before generating")
-        device = self.nano.device
+        model = self.model
+        was_training = model.training
+        model.eval()
+        try:
+            return self._denoise(model, prompt_ids, req, on_step)
+        finally:
+            model.train(was_training)
+
+    def _denoise(
+        self,
+        model: NanoDiff,
+        prompt_ids: torch.Tensor,
+        req: GenerationRequest,
+        on_step: StepHook | None,
+    ) -> torch.Tensor:
+        device = prompt_ids.device
         mask_id = self.nano.mask_token_id
+        batch, p_len = prompt_ids.shape
 
-        prompt = self.enc.encode(req.prompt)
-        prompt = prompt[-self.cfg.train.prompt_len :]
-        prompt_ids = torch.tensor([prompt], device=device)
-        p_len = prompt_ids.shape[1]
-
-        x = torch.full((1, p_len + req.gen_length), mask_id, dtype=torch.long, device=device)
+        x = torch.full((batch, p_len + req.gen_length), mask_id, dtype=torch.long, device=device)
         x[:, :p_len] = prompt_ids
 
         block_length = req.block_length or req.gen_length
@@ -191,25 +224,27 @@ class NanoDiffBackend:
                 if on_step is not None:
                     on_step(step, req.steps)
                 step += 1
-                logits = self.model(x)
-                probs = F.softmax(logits.float(), dim=-1)
-                confidence, prediction = probs.max(dim=-1)
-                if req.temperature > 0:
-                    prediction = torch.multinomial(
-                        F.softmax(logits.float() / req.temperature, dim=-1).squeeze(0), 1
-                    ).view(1, -1)
                 masked = x[:, s0:s1] == mask_id
-                scored = torch.where(
-                    masked, confidence[:, s0:s1], torch.full_like(confidence[:, s0:s1], -1.0)
+                if not masked.any():
+                    continue
+                logits = model(x)[:, s0:s1, :]
+                logits[:, :, mask_id] = float("-inf")
+                probs = F.softmax(logits.float(), dim=-1)
+                if req.temperature > 0:
+                    sampling = F.softmax(logits.float() / req.temperature, dim=-1)
+                    prediction = torch.multinomial(sampling.view(-1, sampling.size(-1)), 1)
+                    prediction = prediction.view(batch, -1)
+                else:
+                    prediction = logits.argmax(dim=-1)
+                confidence = probs.gather(-1, prediction.unsqueeze(-1)).squeeze(-1)
+                confidence = torch.where(
+                    masked, confidence, torch.full_like(confidence, float("-inf"))
                 )
-                k = int(min(counts[i].item(), int(masked.sum().item())))
+                k = int(counts[i])
                 if k <= 0:
                     continue
-                chosen = scored.topk(k, dim=-1).indices
-                block_view = x[:, s0:s1]
-                block_view.scatter_(1, chosen, prediction[:, s0:s1].gather(1, chosen))
-
-        out = x[0, p_len:].tolist()
-        if self.eot_id in out:
-            out = out[: out.index(self.eot_id)]
-        return self.enc.decode(out)
+                chosen = confidence.topk(k, dim=1).indices
+                commit = torch.zeros_like(masked)
+                commit.scatter_(1, chosen, True)
+                x[:, s0:s1] = torch.where(commit, prediction, x[:, s0:s1])
+        return x

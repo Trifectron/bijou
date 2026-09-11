@@ -25,6 +25,11 @@ def test_train_and_eval_seeds_must_differ():
         Config(train={"seed": 7}, eval={"seed": 7})
 
 
+def test_train_samples_must_fill_one_batch():
+    with pytest.raises(ConfigError, match="one train.batch_size batch"):
+        Config(train={"train_samples": 4, "batch_size": 16})
+
+
 def test_env_override(monkeypatch):
     monkeypatch.setenv("BIJOU_ADAPTER__RANK", "8")
     assert Config().adapter.rank == 8

@@ -87,7 +87,7 @@ check-model:
 
 # Tests that need a GPU and a base checkpoint
 test-gpu:
-    uv run pytest -q -m gpu
+    uv run pytest -q -m gpu -rs
 
 # ---------- experiments ----------
 

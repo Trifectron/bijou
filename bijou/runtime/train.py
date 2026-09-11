@@ -77,6 +77,9 @@ def train_adapter(
     optimizer = model.configure_optimizers(
         cfg.train.weight_decay, cfg.train.lr, (0.9, 0.95), backend.nano.device
     )
+    # Linear warmup from lr / warmup_steps to lr, then constant.
+    warmup = max(cfg.train.warmup_steps, 1)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda s: min(1.0, (s + 1) / warmup))
 
     step, total = 0, 0.0
     while step < cfg.train.max_steps:
@@ -89,6 +92,7 @@ def train_adapter(
                 [p for p in model.parameters() if p.requires_grad], cfg.train.grad_clip
             )
             optimizer.step()
+            scheduler.step()
             optimizer.zero_grad(set_to_none=True)
             total += loss.item()
             step += 1

@@ -88,7 +88,6 @@ class GenerationRequest:
     steps: int
     block_length: int | None = None
     temperature: float = 0.0
-    use_cache: bool = False
 
 
 class BijouError(Exception):

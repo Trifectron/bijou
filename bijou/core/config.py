@@ -100,7 +100,6 @@ class Sampling(BaseModel):
     gen_length: int = 128
     block_length: int = 64
     temperature: float = 0.0
-    use_cache: bool = False
 
 
 class Eval(BaseModel):
@@ -154,6 +153,8 @@ class Config(BaseSettings):
                 "sampling.steps must divide evenly across blocks, or phase "
                 "boundaries cannot align with block boundaries"
             )
+        if self.train.train_samples < self.train.batch_size:
+            raise ConfigError("train.train_samples is smaller than one train.batch_size batch")
         if self.train.seed == self.eval.seed:
             raise ConfigError(
                 "train.seed equals eval.seed, so the eval split overlaps training data"

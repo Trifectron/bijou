@@ -147,3 +147,47 @@ def test_inert_adapter_does_not_change_generation(backend, cfg):
     after = backend.generate(request)
 
     assert before == after
+
+
+@pytest.mark.parametrize("temperature", [0.0, 0.8])
+def test_denoising_matches_upstream_generate(backend, temperature):
+    from nanodiff.sampler import generate as upstream_generate
+
+    model = backend.build()
+    prompt = torch.tensor([backend.prompt_ids("an instruction")])
+    request = GenerationRequest(
+        prompt="", gen_length=16, steps=8, block_length=8, temperature=temperature
+    )
+
+    torch.manual_seed(0)
+    ours = backend.denoise(prompt, request)
+    torch.manual_seed(0)
+    theirs = upstream_generate(
+        model, prompt, gen_length=16, steps=8, block_length=8, temperature=temperature
+    )
+
+    assert torch.equal(ours, theirs)
+
+
+def test_prompts_use_the_sft_template(cfg, make_backend):
+    from nanodiff.sft import SFT_PROMPT_NO_INPUT
+
+    roomy = cfg.model_copy(update={"train": cfg.train.model_copy(update={"prompt_len": 256})})
+    backend = make_backend(roomy)
+    ids = backend.prompt_ids("an instruction")
+    assert backend.enc.decode(ids) == SFT_PROMPT_NO_INPUT.format(instruction="an instruction")
+
+
+def test_a_long_prompt_keeps_the_response_cue(backend, cfg):
+    ids = backend.prompt_ids("word " * 500)
+    assert len(ids) == cfg.train.prompt_len
+    assert backend.enc.decode(ids).endswith("### Response:\n")
+
+
+def test_generation_restores_training_mode(backend, cfg):
+    model = backend.build()
+    model.train()
+    backend.generate(
+        GenerationRequest(prompt="x", gen_length=cfg.sampling.gen_length, steps=cfg.sampling.steps)
+    )
+    assert model.training

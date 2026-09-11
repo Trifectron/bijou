@@ -8,7 +8,7 @@ infrastructure for step N+1 before step N reports.
 - [x] Package layout, dependency rule, gate, CLI
 - [x] Adapter injection, weights on disk, phase schedules, one skill, run records
 - [ ] Base checkpoints pulled and `just test-gpu` green
-- [ ] The reimplemented denoising loop matches upstream `generate` token for token with no
+- [x] The reimplemented denoising loop matches upstream `generate` token for token with no
       adapter active
 
 Until parity holds, every downstream number is uninterpretable.

@@ -18,8 +18,8 @@ jobs:
     name: Dependency audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@v4
+      - uses: actions/checkout@v7.0.1
+      - uses: dorny/paths-filter@v4.0.3
         id: filter
         with:
           filters: |
@@ -28,7 +28,7 @@ jobs:
               - uv.lock
               - .github/workflows/security.yml
       - if: github.event_name == 'schedule' || steps.filter.outputs.deps == 'true'
-        uses: astral-sh/setup-uv@v10
+        uses: astral-sh/setup-uv@v10.1.0
       - if: github.event_name == 'schedule' || steps.filter.outputs.deps == 'true'
         run: |
           uv export --locked --no-dev --no-emit-project --no-hashes --extra train --extra cuda \
@@ -44,7 +44,7 @@ jobs:
     env:
       GITLEAKS_VERSION: 8.30.1
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
       - name: Install gitleaks
