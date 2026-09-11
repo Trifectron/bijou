@@ -35,7 +35,7 @@ jobs:
         uses: astral-sh/setup-uv@v10.1.0
       - if: github.event_name == 'schedule' || steps.filter.outputs.deps == 'true'
         run: |
-          uv export --locked --no-dev --no-emit-project --no-hashes --extra train --extra cuda \
+          uv export --locked --no-dev --no-emit-workspace --no-hashes --extra train --extra cuda \
             > "$RUNNER_TEMP/requirements.txt"
           uvx pip-audit --strict --progress-spinner off --disable-pip --no-deps \
             -r "$RUNNER_TEMP/requirements.txt"
