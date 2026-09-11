@@ -20,6 +20,7 @@ just setup-train      # deps with CUDA torch; setup-train-cpu for CPU torch
 just checkpoints      # the configured base checkpoint, from the Hugging Face Hub
 just lock             # re-resolve uv.lock after changing pyproject.toml dependencies
 just image [cpu]      # build the training image
+just console          # the developer console (TUI); alias: just cli
 just config           # the resolved configuration
 just skill list | sample <name> | train <name>
 just evaluate         # score the composition matrix

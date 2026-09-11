@@ -9,6 +9,7 @@ dependencies = [
     "pydantic-settings>=2.7",
     "typer>=0.15",
     "rich>=13",
+    "textual>=6",
 ]
 
 [project.optional-dependencies]

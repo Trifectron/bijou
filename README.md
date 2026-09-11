@@ -109,6 +109,48 @@ Everything else in the repo is infrastructure for these.
 `Backend` is the fourth interface, and exists so nanoDiff's internals are touched in exactly one
 package.
 
+## Console
+
+```bash
+just console          # or: just cli, bijou console
+```
+
+A terminal UI over every recipe: pick one on the left, press enter, and its output streams on
+the right. The status bar shows GPU memory and which processes hold it, whether the base
+checkpoint is on disk, how many adapters and full fine-tunes are trained, the last run record,
+and the git SHA.
+
+```
+ bijou  NORMAL  ● gpu 5.4/6.0G (2x llama-server)  ● nanodiff-150m-sft-alpaca  adapters 0/1  full 0/1
+╭ units ──────────────────────────╮╭ skill train json_extract · running · 3m05s · 812 lines · follow ─╮
+│ setup                           ││ 20:42:52 $ just skill train json_extract                        │
+│ ○ doctor                        ││ 20:42:55 ...                                                     │
+│ gate                            ││                                                                  │
+│ ✓ check                         ││                                                                  │
+│ train                           ││                                                                  │
+│ ● skill train json_extract      ││                                                                  │
+│ evaluate                        ││                                                                  │
+│ ○ evaluate                      ││                                                                  │
+╰─────────────────────────────────╯╰──────────────────────────────────── LoRA adapter on json_extract ╯
+ j/k move  ⏎ start/stop  x stop  r restart  h/l units/logs  / search  : command  ? help  q quit
+```
+
+| Key | Does |
+|---|---|
+| `j` `k` `gg` `G` `ctrl+d` `ctrl+u` | move, or scroll the focused pane; `G` on logs resumes following |
+| `enter` / `s`, `x`, `r` | start or stop, stop, restart the selected unit |
+| `h` `l` `tab` | focus units, logs |
+| `/` then `n` `N` | search the selected unit's logs |
+| `C` | clear the selected unit's logs |
+| `:` | command line: `:start <unit>`, `:stop <unit>`, `:restart <unit>`, `:clear`, `:help`, `:q` |
+| `?` | help |
+| `q` | quit; running units are stopped |
+
+Anything else typed after `:` runs as a just recipe, so `:skill sample json_extract -n 2` shows up
+under **ad-hoc**. Each unit runs in its own process group, so a stop reaches uv and python too.
+Every line is also appended to `.bijou/logs/<unit>.log`; `[console]` in `bijou.toml` sets the
+buffer size, the log directory and the status interval.
+
 ## CLI
 
 ```
