@@ -13,23 +13,34 @@ import time
 from engine.backends.nanodiff import NanoDiffBackend
 from engine.core.config import Config
 from engine.core.types.agent import SkillInfo, SkillRequest, SkillResult
-from engine.core.types.errors import AdapterError, ConfigError
-from engine.core.types.model import GenerationRequest
+from engine.core.types.diffusion import GenerationRequest
+from engine.core.types.errors import AdapterError, ConfigError, EngineError
 from engine.routing.phase import Phase, PhaseRouter, PhaseSchedule
 from engine.runtime.evaluate import prepare
 from engine.skills import load as load_skill
 from engine.skills import names as skill_names
+from engine.telemetry.metrics import BankMetrics, skills_label
 
 
 class SkillBank:
     """The base model and its trained skills, ready to generate."""
 
-    def __init__(self, cfg: Config, backend: NanoDiffBackend | None = None) -> None:
+    def __init__(
+        self,
+        cfg: Config,
+        backend: NanoDiffBackend | None = None,
+        metrics: BankMetrics | None = None,
+    ) -> None:
+        loading = time.monotonic()
         self.cfg = cfg
+        self.metrics = metrics
         self.known = skill_names(cfg.paths.data)
         self.trained = tuple(n for n in self.known if cfg.adapter_path(n).exists())
         self.backend, self.state = prepare(cfg, list(self.trained), backend=backend)
         self._lock = threading.Lock()
+        if metrics is not None:
+            metrics.trained_skills.set(len(self.trained))
+            metrics.load_seconds.set(time.monotonic() - loading)
 
     def catalog(self) -> list[SkillInfo]:
         """Every known skill, with its description and whether it can be equipped."""
@@ -89,14 +100,28 @@ class SkillBank:
 
     def generate(self, req: SkillRequest) -> SkillResult:
         """Equip, generate, and restore the previous equipped set."""
-        schedule = self.schedule(req)
-        gen = self.request(req)
-        blocks = gen.gen_length // (gen.block_length or gen.gen_length)
-        schedule.validate_against_blocks(gen.steps, blocks)
+        asked = req.skills or [n for p in req.schedule or [] for n in p.skills]
+        try:
+            schedule = self.schedule(req)
+            gen = self.request(req)
+            blocks = gen.gen_length // (gen.block_length or gen.gen_length)
+            schedule.validate_against_blocks(gen.steps, blocks)
+        except EngineError:
+            if self.metrics is not None:
+                self.metrics.generations.labels(skills_label(asked), "error").inc()
+            raise
         live = sorted({n for p in schedule.phases for n in p.adapters})
-        started = time.monotonic()
-        with self._lock, PhaseRouter(self.state, schedule) as router:
-            text = self.backend.generate(gen, on_step=router.at)
+        waiting = time.monotonic()
+        with self._lock:
+            started = time.monotonic()
+            with PhaseRouter(self.state, schedule) as router:
+                text = self.backend.generate(gen, on_step=router.at)
+        if self.metrics is not None:
+            label = skills_label(live)
+            self.metrics.lock_wait_seconds.observe(started - waiting)
+            self.metrics.generation_seconds.labels(label).observe(time.monotonic() - started)
+            self.metrics.generations.labels(label, "ok").inc()
+            self.metrics.tokens.inc(gen.gen_length)
         return SkillResult(
             text=text,
             skills=live,

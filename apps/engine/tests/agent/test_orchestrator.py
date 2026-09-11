@@ -4,9 +4,9 @@ import json
 
 import pytest
 
+from engine.agent.llm import extract_json
 from engine.agent.planner import PlanReply, check_plan
 from engine.agent.selector import PickReply, check_pick
-from engine.agent.task import extract_json
 from engine.core.doubles import (
     FakeSkillRuntime,
     FakeTool,

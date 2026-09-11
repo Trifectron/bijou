@@ -7,8 +7,8 @@ from pathlib import Path
 import torch
 
 from engine.adapters.lora import add, sites
+from engine.core.types.diffusion import AdapterSpec
 from engine.core.types.errors import AdapterError
-from engine.core.types.model import AdapterSpec
 
 
 def state_dict(model: torch.nn.Module, name: str) -> dict[str, torch.Tensor]:

@@ -1,10 +1,13 @@
-"""The engine command: the agent, the skill bank, training, collection and the research matrix.
+"""The engine command.
 
-Commands that do not need the model stack import it lazily, so the agent, config, skill
-inspection, collection and run records work in an environment without torch.
+  engine run / confirm / serve / sessions   the agent
+  engine skills ...                         the skill bank: list, train, collect, propose
+  engine matrix / runs / config             research and inspection
+
+Commands that need the model stack import it lazily, so everything else works without torch.
 """
 
-from engine.commands import agent, model
+from engine.commands import agent, research, skills
 from engine.commands.app import app
 
-__all__ = ["agent", "app", "model"]
+__all__ = ["agent", "app", "research", "skills"]

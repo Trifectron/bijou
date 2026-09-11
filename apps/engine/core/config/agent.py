@@ -35,7 +35,7 @@ class Llm(_Table):
 
 
 class SkillServer(_Table):
-    """Where the skill bank runs: in this process, or at url, served by engine serve-skills."""
+    """Where the skill bank runs: in this process, or at url, served by engine serve --bank."""
 
     mode: Literal["local", "http"] = "local"
     url: str = "http://127.0.0.1:8100"
@@ -54,6 +54,8 @@ class Loop(_Table):
     run_timeout_secs: float = 600.0
     tool_timeout_secs: float = 60.0
     max_tool_output_chars: int = 6000
+    # Characters of each prompt and reply kept on its model_call event and span; 0 keeps none.
+    record_content_chars: int = 32000
 
 
 class Planning(_Table):
@@ -111,18 +113,10 @@ class McpServer(_Table):
 
 
 class Mcp(_Table):
-    """MCP servers. playwright_url is per-machine and lives in .env; set, it adds browser."""
+    """MCP servers, each exposed to subagents as tools named server_tool."""
 
     servers: list[McpServer] = Field(default_factory=list)
-    playwright_url: str = ""
     max_description_chars: int = 200
-
-    def all_servers(self) -> list[McpServer]:
-        """The configured servers, plus the Playwright browser when its URL is set."""
-        servers = list(self.servers)
-        if self.playwright_url:
-            servers.append(McpServer(name="browser", url=self.playwright_url))
-        return servers
 
 
 class Sessions(_Table):
@@ -234,7 +228,7 @@ class AgentConfig(_Table):
             raise ConfigError("agent.patterns.similarity must lie in (0, 1]")
         if self.policy.confirm_from is RiskClass.READ_PUBLIC:
             raise ConfigError("agent.policy.confirm_from read_public would hold every tool")
-        names = [s.name for s in self.mcp.all_servers()]
+        names = [s.name for s in self.mcp.servers]
         duplicated = sorted({n for n in names if names.count(n) > 1})
         if duplicated:
             raise ConfigError(f"agent.mcp has two servers named {', '.join(duplicated)}")

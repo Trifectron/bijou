@@ -22,8 +22,8 @@ import torch
 import torch.nn.functional as F
 
 from engine.core.config import Config
+from engine.core.types.diffusion import GenerationRequest
 from engine.core.types.errors import BackendError
-from engine.core.types.model import GenerationRequest
 
 try:
     from nanodiff.config import Config as NanoConfig

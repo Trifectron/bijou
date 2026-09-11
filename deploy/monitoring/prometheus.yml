@@ -1,0 +1,31 @@
+# Scrapes llama-server (--metrics), the engine, the skill bank and the GPU exporter.
+# Prometheus runs on the host network, so every target is a port on the host's loopback, whether
+# the service runs on the host or in compose with its port published there. A service not
+# running shows as down.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: llama-server
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["localhost:8000"]
+  # engine serve: the agent, and the skill bank when it runs in process.
+  - job_name: engine
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["localhost:8200"]
+  # engine serve --bank.
+  - job_name: skill-bank
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["localhost:8100"]
+  # Only up under the gpu profile.
+  - job_name: gpu
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["localhost:9835"]
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

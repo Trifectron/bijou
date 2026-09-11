@@ -57,11 +57,11 @@ files = [
     "apps/engine/routing",
     "apps/engine/skills",
     "apps/engine/agent",
-    "apps/engine/model/openai_compat.py",
-    "apps/engine/model/skill_server.py",
+    "apps/engine/clients/chat.py",
+    "apps/engine/clients/remote_bank.py",
     "apps/engine/tools",
-    "apps/engine/stores",
-    "apps/engine/patterns",
+    "apps/engine/memory",
+    "apps/engine/telemetry",
     "apps/evals",
 ]
 exclude = ["apps/[^/]+/tests/"]
@@ -96,10 +96,11 @@ modules = ["engine", "evals", "cli"]
 # ---------------------------------------------------------------- inside the engine
 #
 #   commands
-#   routes | experiments
+#   api
 #   wiring
-#   agent | model | tools | stores | patterns | collect
+#   agent | clients | tools | memory | collect
 #   runtime
+#   telemetry
 #   {adapters, routing, skills} and backends
 #   core
 
@@ -108,10 +109,11 @@ name = "engine layering"
 type = "layers"
 layers = [
     "engine.commands",
-    "engine.routes | engine.experiments",
+    "engine.api",
     "engine.wiring",
-    "engine.agent | engine.model | engine.tools | engine.stores | engine.patterns | engine.collect",
+    "engine.agent | engine.clients | engine.tools | engine.memory | engine.collect",
     "engine.runtime",
+    "engine.telemetry",
     "engine.backends",
     "engine.core",
 ]
@@ -126,20 +128,19 @@ name = "core imports nothing else in the engine"
 type = "forbidden"
 source_modules = ["engine.core"]
 forbidden_modules = [
+    "engine.telemetry",
     "engine.adapters",
     "engine.routing",
     "engine.skills",
     "engine.backends",
     "engine.runtime",
     "engine.agent",
-    "engine.model",
+    "engine.clients",
     "engine.tools",
-    "engine.stores",
-    "engine.patterns",
+    "engine.memory",
     "engine.collect",
-    "engine.experiments",
     "engine.wiring",
-    "engine.routes",
+    "engine.api",
     "engine.commands",
 ]
 
@@ -155,14 +156,12 @@ source_modules = [
     "engine.skills",
     "engine.runtime",
     "engine.agent",
-    "engine.model",
+    "engine.clients",
     "engine.tools",
-    "engine.stores",
-    "engine.patterns",
+    "engine.memory",
     "engine.collect",
-    "engine.experiments",
     "engine.wiring",
-    "engine.routes",
+    "engine.api",
     "engine.commands",
 ]
 forbidden_modules = ["nanodiff"]
@@ -176,23 +175,21 @@ forbidden_modules = ["torch", "httpx", "engine.backends", "engine.runtime"]
 [[tool.importlinter.contracts]]
 name = "the agent loop never loads the diffusion model; it reaches it through SkillRuntime"
 type = "forbidden"
-source_modules = ["engine.agent", "engine.tools", "engine.stores", "engine.patterns"]
+source_modules = ["engine.agent", "engine.tools", "engine.memory"]
 forbidden_modules = ["torch", "engine.runtime", "engine.backends", "engine.adapters"]
 
 [[tool.importlinter.contracts]]
-name = "only model, tools and collect open network connections"
+name = "only clients, tools and collect open network connections"
 type = "forbidden"
 source_modules = [
     "engine.core",
     "engine.agent",
-    "engine.stores",
-    "engine.patterns",
+    "engine.memory",
     "engine.runtime",
     "engine.adapters",
     "engine.routing",
     "engine.skills",
     "engine.backends",
-    "engine.experiments",
 ]
 forbidden_modules = ["httpx", "mcp"]
 allow_indirect_imports = true

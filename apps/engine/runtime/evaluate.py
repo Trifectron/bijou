@@ -14,7 +14,7 @@ from engine.adapters.lora import inject
 from engine.backends.nanodiff import NanoDiffBackend
 from engine.core.config import Config
 from engine.core.determinism import seed_everything
-from engine.core.types.model import AdapterState, GenerationRequest, Sample, Score, SkillReport
+from engine.core.types.diffusion import AdapterState, GenerationRequest, Sample, Score, SkillReport
 from engine.routing.phase import PhaseRouter, PhaseSchedule
 from engine.skills import load as load_skill
 

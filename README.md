@@ -15,7 +15,7 @@
 A frozen masked diffusion LM carries a bank of **skills**: named LoRA deltas, each trained on one
 narrow task, switchable per request and per point along the denoising trajectory. An **agent**
 runs in the same engine. An LLM plans a request into steps and picks which skills each step
-equips; subagents act through tools, MCP servers and a browser, and use the equipped skills
+equips; subagents act through tools and MCP servers, and use the equipped skills
 through the diffusion model. Every run is an indexed session, and recurring work no skill covers
 is proposed as a new skill, collected with a teacher model, reviewed, and trained into the bank.
 
@@ -23,9 +23,9 @@ is proposed as a new skill, collected with a teacher model, reviewed, and traine
 User -> planner (LLM) -> subagent per step
                             |-- selector (LLM): which skills to equip
                             |-- run_skill -> skill bank: diffusion base + equipped LoRAs
-                            |-- tools, MCP, browser (confirmation before anything consequential)
+                            |-- tools and MCP servers (confirmation before anything consequential)
         sessions (indexed) -> pattern miner -> skill spec -> person approves
-                           -> collect (teacher LLM) -> skill train -> the bank
+                           -> collect (teacher LLM) -> skills train -> the bank
 ```
 
 Alongside the product sits a research track with kill criteria: do adapters beat a tuned prompt,
@@ -45,8 +45,8 @@ just check            # the gate: format, lint, layering, types, tests
 Then, with a chat model on an OpenAI-compatible endpoint (llama-server by default, set in `.env`):
 
 ```bash
-just setup-train && just checkpoints     # torch and the base model, on a GPU box
-just skill train json_extract            # one skill in the bank
+just setup cuda && just checkpoints      # torch and the base model, on a GPU box
+just skills train json_extract           # one skill in the bank
 just agent "Turn this into JSON: Ana has worked as an engineer in Tempe for 7 years."
 just serve                               # the engine over HTTP, for clients and evals
 ```
@@ -71,18 +71,14 @@ classes, and the invariants.
 ```
 engine run "..." [--resume ID]     plan, equip, act, answer; asks before consequential actions
 engine confirm SESSION TOKEN       approve (or --deny) a waiting action
-engine serve                       the agent over HTTP: /run /confirm /sessions /skills /patterns
-engine serve-skills                the skill bank alone over HTTP, for an agent elsewhere
-engine sessions list|search|show   the session index
-engine skills                      what the skill bank can equip
-engine patterns [--write]          recurring uncovered work, as skill specs for review
-engine collect list|new|run        skill specs; an approved spec becomes a dataset skill
-engine skill list|sample|grade|train
-engine evaluate                    the composition matrix
-engine runs list|show              run records
-engine config [table]              the resolved configuration
+engine serve [--bank]              the agent over HTTP; --bank serves the skill bank alone
+engine sessions [QUERY] [--show]   the session index
+engine skills list|sample|grade|train|propose|specs|new|collect
+engine matrix [--train]            the composition matrix
+engine runs [ID]                   run records
+engine config [TABLE]              the resolved configuration
 
-evals run|compare|baseline|cases   agent evals
+evals run|compare|baseline|cases   agent evals; run compares against the baseline
 ```
 
 ## Console
@@ -95,6 +91,19 @@ Units on the left, the selected unit's output on the right; `j`/`k` move, `enter
 `:` runs any recipe, `/` searches, `?` for help. The status bar shows GPU memory and its holders,
 the base checkpoint, trained skills, whether the engine answers, the last run, and the git SHA.
 Every line is mirrored to `.bijou/logs/<unit>.log`.
+
+## Observability
+
+```bash
+just up observe       # Phoenix :6006, Prometheus :9090, Grafana :3000 (admin/admin)
+just up model         # llama-server :8000, if the chat model is not already running on the host
+```
+
+Set `BIJOU_TELEMETRY__OTLP_ENDPOINT=http://127.0.0.1:6006/v1/traces` in `.env` and every run
+shows in Phoenix as a span tree: the run, each step with the skills it equipped, every model call
+with its prompt and reply, every tool call. `engine serve` and `engine serve --bank` serve
+Prometheus metrics at `/metrics`; Grafana has an engine dashboard and an inference dashboard for
+llama-server and the GPU.
 
 ## Safety
 

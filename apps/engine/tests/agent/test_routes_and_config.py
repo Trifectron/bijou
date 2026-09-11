@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 import pytest
 from fastapi.testclient import TestClient
 
+from engine.api.agent import create_app
 from engine.core.config import AgentConfig, Config
 from engine.core.doubles import (
     FakeSkillRuntime,
@@ -16,7 +17,6 @@ from engine.core.doubles import (
 )
 from engine.core.types.agent import RiskClass, SkillInfo
 from engine.core.types.errors import ConfigError
-from engine.routes.agent import create_app
 from engine.wiring import build
 
 
@@ -107,10 +107,12 @@ def test_contradictions_are_rejected_at_load(table, values, message):
 
 
 def test_two_mcp_servers_cannot_share_a_name():
-    with pytest.raises(ConfigError, match="two servers named browser"):
+    with pytest.raises(ConfigError, match="two servers named pages"):
         AgentConfig(
             mcp={
-                "playwright_url": "http://localhost:8931/mcp",
-                "servers": [{"name": "browser", "url": "http://x"}],
+                "servers": [
+                    {"name": "pages", "url": "http://x"},
+                    {"name": "pages", "command": "y"},
+                ]
             }
         )

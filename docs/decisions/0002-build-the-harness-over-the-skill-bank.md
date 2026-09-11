@@ -9,7 +9,7 @@ browser, and measuring adapters through a broken agent loop would measure nothin
 
 The goal has moved from "does this work" to building the system in the v0 design: a user request
 is planned into subagents, each subagent is equipped with the LoRA skills its work needs, acts
-through tools, MCP and a browser, and every session is indexed so recurring work can be turned
+through tools and MCP servers, and every session is indexed so recurring work can be turned
 into new skills.
 
 ## Decision
@@ -24,7 +24,7 @@ between two models.
   skills, or the phase schedule, the selector picked.
 - **One engine.** `apps/engine` holds the model, the bank, the agent, collection and the research
   matrix, with import contracts between its layers. The agent reaches the bank only through the
-  `SkillRuntime` protocol: in this process by default, or over HTTP to `engine serve-skills` when
+  `SkillRuntime` protocol: in this process by default, or over HTTP to `engine serve --bank` when
   the model runs on another machine.
 - **Three apps.** `apps/engine`, `apps/evals` (golden cases against a serving engine, gated on a
   baseline, as in sparkyai) and `apps/cli` (the console). Apps never import each other.

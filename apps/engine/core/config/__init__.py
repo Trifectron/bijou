@@ -18,7 +18,7 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -42,7 +42,7 @@ from engine.core.config.agent import (
     Tools,
     Trace,
 )
-from engine.core.config.model import (
+from engine.core.config.diffusion import (
     Adapter,
     Backend,
     Collect,
@@ -79,11 +79,32 @@ __all__ = [
     "Serve",
     "Sessions",
     "SkillServer",
+    "Telemetry",
     "Tools",
     "Trace",
     "Train",
     "load",
 ]
+
+
+class Telemetry(BaseModel):
+    """Spans over OTLP, read by Phoenix. otlp_endpoint is per-machine and lives in .env as
+    BIJOU_TELEMETRY__OTLP_ENDPOINT; empty sends no spans. Prometheus metrics are always served."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    otlp_endpoint: str = ""
+    service_name: str = "bijou-engine"
+    sample_ratio: float = 1.0
+    export_timeout_secs: float = 10.0
+
+    @model_validator(mode="after")
+    def _check(self) -> Telemetry:
+        if not 0 <= self.sample_ratio <= 1:
+            raise ConfigError("telemetry.sample_ratio must lie in [0, 1]")
+        if self.export_timeout_secs <= 0:
+            raise ConfigError("telemetry.export_timeout_secs must be positive")
+        return self
 
 
 def _toml_files() -> tuple[Path, ...]:
@@ -111,6 +132,7 @@ class Config(BaseSettings):
     serve: Serve = Field(default_factory=Serve)
     collect: Collect = Field(default_factory=Collect)
     agent: AgentConfig = Field(default_factory=AgentConfig)
+    telemetry: Telemetry = Field(default_factory=Telemetry)
 
     @classmethod
     def settings_customise_sources(

@@ -19,8 +19,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from engine.core.types.diffusion import AdapterState
 from engine.core.types.errors import ConfigError
-from engine.core.types.model import AdapterState
 
 
 @dataclass(frozen=True)

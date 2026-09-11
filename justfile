@@ -7,34 +7,18 @@ default:
 
 # ---------- first run ----------
 
-# Check required tools, the submodule, dependencies and checkpoints
+# Check required tools, the submodule, dependencies, checkpoints and services
 doctor:
     ./scripts/doctor.sh
 
-# Create .env from the example (no-op if it exists). Settings live in bijou.toml
-env:
-    @[ -f .env ] && echo ".env exists" || { cp .env.example .env && echo "created .env"; }
+# Everything a fresh clone needs: .env, git hooks, the submodule, dependencies
+bootstrap: env hooks vendor setup
+    @echo "ready: 'just check' for the gate; 'just setup cuda' and 'just checkpoints' on a GPU box"
 
-# Install the pre-commit hook (runs the gate)
-hooks:
-    git config core.hooksPath .githooks
-    @echo "hooks installed: .githooks/pre-commit"
-
-# Fetch the nanoDiff submodule
-vendor:
-    git submodule update --init --recursive
-
-# Install every app without the model stack (graders, schedules, config, the agent, evals)
-setup:
-    uv sync --locked --all-packages
-
-# Install every app, with CUDA torch for the engine
-setup-train:
-    uv sync --locked --all-packages --extra train --extra cuda
-
-# Install every app, with CPU torch. What CI uses; the CUDA wheels are gigabytes and CI has no device.
-setup-train-cpu:
-    uv sync --locked --all-packages --extra train --extra cpu
+# Install every app; TORCH=cpu or cuda adds the model stack (CI uses cpu)
+setup TORCH="":
+    @case "{{TORCH}}" in ""|cpu|cuda) ;; *) echo "TORCH is cpu or cuda"; exit 1;; esac
+    uv sync --locked --all-packages {{ if TORCH == "" { "" } else { "--extra train --extra " + TORCH } }}
 
 # Re-resolve uv.lock after changing dependencies in any pyproject.toml
 lock:
@@ -44,17 +28,17 @@ lock:
 checkpoints *NAMES:
     ./scripts/checkpoints.sh {{NAMES}}
 
-# Everything a fresh clone needs
-bootstrap: env hooks vendor setup
-    @echo "ready: 'just check' for the gate; 'just setup-train' and 'just checkpoints' on a GPU box"
+[private]
+env:
+    @[ -f .env ] && echo ".env exists" || { cp .env.example .env && echo "created .env"; }
 
-# ---------- console ----------
+[private]
+hooks:
+    git config core.hooksPath .githooks
 
-# Developer console: run recipes, stream their logs, watch the GPU, services and artifacts
-console:
-    uv run console
-
-alias cli := console
+[private]
+vendor:
+    git submodule update --init --recursive
 
 # ---------- the gate ----------
 
@@ -67,114 +51,100 @@ fmt:
     uvx ruff format .
     uvx ruff check --fix .
 
+# Tests without a GPU; MODE=model insists on torch so nothing skips, MODE=gpu runs the GPU tests
+test MODE="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{MODE}}" in
+      "") uv run pytest -q -m "not gpu" ;;
+      model) uv run python -c "import torch; print('torch', torch.__version__)"
+             uv run pytest -q -m "not gpu" --no-header -rs ;;
+      gpu) uv run pytest -q -m gpu -rs ;;
+      *) echo "MODE is model or gpu"; exit 1 ;;
+    esac
+
+[private]
 fmt-check:
     uvx ruff format --check .
 
+[private]
 lint:
     uvx ruff check .
 
-# The dependency rule from pyproject.toml [tool.importlinter], between apps and inside each
+[private]
 deps:
     ./scripts/check-deps.sh
 
-# The vendored submodule pin moved only alongside a test change
-vendor-check:
-    ./scripts/check-vendor.sh
-
+[private]
 types:
     uv run mypy
 
-# Everything not needing a GPU. Tests importing torch skip when it is absent.
-test:
-    uv run pytest -q -m "not gpu"
+# ---------- the engine ----------
 
-# The same tests with the model stack installed, so nothing skips silently.
-check-model:
-    uv run python -c "import torch; print('torch', torch.__version__)"
-    uv run pytest -q -m "not gpu" --no-header -rs
+# The engine over HTTP: the agent with the skill bank in process; --bank serves the bank alone
+serve *ARGS:
+    uv run engine serve {{ARGS}}
 
-# Tests that need a GPU and a base checkpoint
-test-gpu:
-    uv run pytest -q -m gpu -rs
-
-# ---------- services ----------
-
-# The engine over HTTP on agent.http: the agent, with the skill bank in process by default
-serve:
-    uv run engine serve
-
-# The skill bank alone over HTTP on serve.port, for an agent elsewhere (agent.skills.mode = http)
-serve-skills:
-    uv run engine serve-skills
-
-# Playwright MCP over Streamable HTTP, the browser the agent drives. Needs node
-browser PORT="8931":
-    npx -y @playwright/mcp@latest --port {{PORT}}
-
-# ---------- the agent ----------
-
-# Run one request: plan, equip skills, act, answer
+# One request: plan, equip skills, act, answer
 agent +REQUEST:
     uv run engine run "{{REQUEST}}"
 
-# The engine command: run, confirm, serve, skills, sessions, patterns, skill, collect, runs
-engine *ARGS:
-    uv run engine {{ARGS}}
+# The skill bank: list, sample, grade, train, propose, specs, new, collect
+skills *ARGS="list":
+    uv run engine skills {{ARGS}}
 
-# Sessions: list, show <id>, search <text>
+# Sessions, newest first, or matching a query; --show <id> for one in full
 sessions *ARGS:
     uv run engine sessions {{ARGS}}
 
-# Recurring work no skill covers; --write turns each into a skill spec for review
-patterns *ARGS:
-    uv run engine patterns {{ARGS}}
+# Score the composition matrix; --train trains every adapter and full fine-tune first
+matrix *ARGS:
+    uv run engine matrix {{ARGS}}
 
-# Skill specs: list, new, run <spec>. Collection needs an approved spec and the teacher model
-collect *ARGS:
-    uv run engine collect {{ARGS}}
+# Run records, newest first; a run id prints one in full
+runs *ARGS:
+    uv run engine runs {{ARGS}}
 
-# ---------- experiments ----------
+# The resolved configuration, or one table of it
+config *ARGS:
+    uv run engine config {{ARGS}}
 
-# Resolved configuration
-config:
-    uv run engine config
+# Any engine command
+engine *ARGS:
+    uv run engine {{ARGS}}
 
-# Skills: list, sample, train
-skill *ARGS:
-    uv run engine skill {{ARGS}}
+# ---------- the stack ----------
 
-# Score the composition matrix
-evaluate:
-    uv run engine evaluate
+# Start compose services by profile: observe (phoenix, prometheus, grafana), model (llama-server), gpu, engine
+up +PROFILES="observe":
+    docker compose -f deploy/compose.yml $(printf -- '--profile %s ' {{PROFILES}}) up -d
 
-# Run records
-runs:
-    uv run engine runs list
+# Stop every compose service
+down:
+    docker compose -f deploy/compose.yml --profile '*' down
 
-# Train an adapter and a full fine-tune for every skill, then score the matrix
-matrix:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    for s in $(uv run engine skill names); do
-        uv run engine skill train "$s"
-        uv run engine skill train "$s" --full-finetune
-    done
-    uv run engine evaluate
+# Follow the logs of compose services, all of them by default
+logs *SERVICES:
+    docker compose -f deploy/compose.yml --profile '*' logs -f {{SERVICES}}
 
 # ---------- evals ----------
 
-# Evals: run, compare, baseline, cases. run needs just serve
-evals *ARGS:
+# Golden cases against just serve, gated on the baseline; also compare, baseline, cases
+evals *ARGS="run":
     uv run evals {{ARGS}}
 
-# ---------- deploy ----------
+# ---------- console and deploy ----------
 
-# Build the training image. TORCH=cpu builds one that runs without a GPU
+# Developer console: run recipes, stream their logs, watch the GPU and the engine
+console:
+    uv run console
+
+alias cli := console
+
+# Build the engine image; TORCH=cpu builds one that runs without a GPU
 image TORCH="cuda":
     docker build -f deploy/Dockerfile --build-arg TORCH={{TORCH}} \
         --build-arg GIT_SHA=$(git rev-parse --short HEAD) -t bijou-training:{{TORCH}} .
-
-# ---------- housekeeping ----------
 
 clean:
     rm -rf .venv .mypy_cache .pytest_cache .ruff_cache .import_linter_cache

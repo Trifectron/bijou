@@ -5,6 +5,8 @@ import json
 import httpx
 import pytest
 
+from engine.clients.chat import OpenAIChat, from_wire, to_wire
+from engine.clients.remote_bank import RemoteBank
 from engine.core.config import Llm, SkillServer
 from engine.core.types.agent import (
     FinishReason,
@@ -16,8 +18,6 @@ from engine.core.types.agent import (
     ToolDefinition,
 )
 from engine.core.types.errors import ModelError, SkillRuntimeError
-from engine.model.openai_compat import OpenAIChat, from_wire, to_wire
-from engine.model.skill_server import HttpSkillRuntime
 
 
 def reply(content="", tool_calls=None, finish="stop"):
@@ -109,7 +109,7 @@ async def test_the_skill_client_speaks_the_skill_server_contract(ctx):
             json={"text": "out", "skills": ["a"], "gen_length": 64, "steps": 32, "duration_ms": 5},
         )
 
-    runtime = HttpSkillRuntime(SkillServer(), client(handler, "http://skills"))
+    runtime = RemoteBank(SkillServer(), client(handler, "http://skills"))
     assert (await runtime.catalog())[0].name == "a"
     schedule = [PhaseSpec(start=0, end=1, skills={"a": 1.0})]
     result = await runtime.run(ctx, SkillRequest(prompt="p", schedule=schedule))
@@ -123,7 +123,7 @@ async def test_the_skill_client_speaks_the_skill_server_contract(ctx):
 
 
 async def test_the_skill_client_reports_refusals_and_outages(ctx):
-    refused = HttpSkillRuntime(
+    refused = RemoteBank(
         SkillServer(),
         client(lambda r: httpx.Response(422, json={"detail": "not trained: z"}), "http://s"),
     )
@@ -134,4 +134,4 @@ async def test_the_skill_client_reports_refusals_and_outages(ctx):
         raise httpx.ConnectError("refused")
 
     with pytest.raises(SkillRuntimeError, match="just serve"):
-        await HttpSkillRuntime(SkillServer(), client(down, "http://s")).catalog()
+        await RemoteBank(SkillServer(), client(down, "http://s")).catalog()

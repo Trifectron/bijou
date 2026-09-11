@@ -17,8 +17,8 @@ from collections.abc import Iterator, Sequence
 import torch
 import torch.nn as nn
 
+from engine.core.types.diffusion import AdapterSpec, AdapterState
 from engine.core.types.errors import AdapterError
-from engine.core.types.model import AdapterSpec, AdapterState
 
 
 class _Delta(nn.Module):

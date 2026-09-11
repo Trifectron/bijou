@@ -38,7 +38,7 @@ from engine.core.types.agent import (
     ToolOutput,
     TraceEvent,
 )
-from engine.core.types.model import AdapterSpec, GenerationRequest, Sample, Score, Split
+from engine.core.types.diffusion import AdapterSpec, GenerationRequest, Sample, Score, Split
 
 if TYPE_CHECKING:
     import torch

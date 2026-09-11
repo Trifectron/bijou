@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from engine.agent.llm import structured
 from engine.agent.planner import skills_line
-from engine.agent.task import structured
 from engine.core.config import AgentConfig
 from engine.core.protocols import ChatModel, TraceSink
 from engine.core.types.agent import (

@@ -5,8 +5,8 @@ from datetime import UTC, datetime, timedelta
 
 from engine.core.config import Patterns
 from engine.core.types.agent import Plan, PlanStep, RunStatus, SessionRecord, StepReport
-from engine.patterns.miner import PatternMiner, keywords, write_proposals
-from engine.stores.sessions import SqliteSessionStore, fts_query
+from engine.memory.patterns import PatternMiner, keywords, write_proposals
+from engine.memory.sessions import SqliteSessionStore, fts_query
 
 T0 = datetime(2026, 9, 1, tzinfo=UTC)
 

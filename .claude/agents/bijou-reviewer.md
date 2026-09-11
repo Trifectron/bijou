@@ -9,12 +9,12 @@ You review changes in the Bijou repo. Read `AGENTS.md`, `docs/ARCHITECTURE.md` a
 
 Check, in priority order:
 1. Architecture invariants: `apps/engine`, `apps/evals` and `apps/cli` never import each other;
-   the layer order inside the engine (`commands -> routes | experiments -> wiring -> agent |
-   model | tools | stores | patterns | collect -> runtime -> {adapters, routing, skills} and
+   the layer order inside the engine (`commands -> api -> wiring -> agent | clients | tools |
+   memory | collect -> runtime -> {adapters, routing, skills} and
    backends -> core`), siblings never import each other; only `engine.backends` imports
    `nanodiff`; `engine.skills` imports no torch; the agent side never imports the model stack
    and reaches it only through `SkillRuntime`; graders load no model, touch no GPU, call no
-   network; only `engine.model`, `engine.tools` and `engine.collect` open connections; no global
+   network; only `engine.clients`, `engine.tools` and `engine.collect` open connections; no global
    mutable state except `AdapterState`; nothing under `third_party/` edited. Agent: every
    write-class tool goes through `Policy`; a skill spec is never approved by code; every
    replaceable dependency is a protocol in `engine/core/protocols.py` with a double in

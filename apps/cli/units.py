@@ -16,9 +16,8 @@ class Group(StrEnum):
 
     SETUP = "setup"
     GATE = "gate"
-    SERVICES = "services"
-    AGENT = "agent"
-    TRAIN = "train"
+    SERVE = "serve"
+    SKILLS = "skills"
     EVALUATE = "evaluate"
     INSPECT = "inspect"
     DEPLOY = "deploy"
@@ -50,43 +49,34 @@ def adhoc(args: Sequence[str]) -> Unit:
 def catalog(skills: Sequence[str]) -> list[Unit]:
     """Every unit the console lists, for the given skills."""
     units = [
-        _unit(Group.SETUP, "doctor", "tools, submodule, dependencies, checkpoint, GPU"),
-        _unit(Group.SETUP, "setup", "dependencies without torch"),
-        _unit(Group.SETUP, "setup-train", "dependencies with CUDA torch"),
-        _unit(Group.SETUP, "setup-train-cpu", "dependencies with CPU torch"),
-        _unit(Group.SETUP, "vendor", "fetch the nanoDiff submodule"),
+        _unit(Group.SETUP, "doctor", "tools, submodule, dependencies, checkpoint, services"),
+        _unit(Group.SETUP, "setup", "every app, no torch"),
+        _unit(Group.SETUP, "setup cuda", "every app, with CUDA torch"),
         _unit(Group.SETUP, "checkpoints", "download the configured base checkpoint"),
         _unit(Group.GATE, "check", "format, lint, layering, types, tests"),
         _unit(Group.GATE, "fmt", "format in place"),
-        _unit(Group.GATE, "check-model", "the tests with the model stack, none skipped"),
-        _unit(Group.GATE, "test-gpu", "the base checkpoint on the configured device"),
-        _unit(Group.SERVICES, "serve", "the engine over HTTP: the agent and its skill bank"),
-        _unit(Group.SERVICES, "serve-skills", "the skill bank alone, for an agent elsewhere"),
-        _unit(Group.SERVICES, "browser", "Playwright MCP, the browser the agent drives"),
-        _unit(Group.AGENT, "engine skills", "what the skill bank can equip"),
-        _unit(Group.AGENT, "sessions list", "every session, newest first"),
-        _unit(Group.AGENT, "patterns", "recurring work no skill covers"),
-        _unit(Group.AGENT, "collect list", "skill specs waiting for review"),
+        _unit(Group.GATE, "test model", "the tests with torch, none skipped"),
+        _unit(Group.GATE, "test gpu", "the base checkpoint on the configured device"),
+        _unit(Group.SERVE, "serve", "the agent, with the skill bank in process"),
+        _unit(Group.SERVE, "serve --bank", "the skill bank alone, for an agent elsewhere"),
+        _unit(Group.SERVE, "up observe", "phoenix, prometheus and grafana"),
+        _unit(Group.SERVE, "up model", "llama-server, the chat model"),
+        _unit(Group.SERVE, "down", "stop every compose service"),
+        _unit(Group.SKILLS, "skills", "every skill and what is trained"),
+        _unit(Group.SKILLS, "skills propose", "recurring work no skill covers"),
+        _unit(Group.SKILLS, "skills specs", "skill specs waiting for review"),
     ]
-    for skill in skills:
-        units.append(_unit(Group.TRAIN, f"skill train {skill}", f"LoRA adapter on {skill}"))
-        units.append(
-            _unit(
-                Group.TRAIN,
-                f"skill train {skill} --full-finetune",
-                f"full fine-tune on {skill}, the upper bound",
-            )
-        )
     units += [
-        _unit(Group.EVALUATE, "evaluate", "score the composition matrix"),
-        _unit(Group.EVALUATE, "matrix", "train everything, then score the matrix"),
-        _unit(Group.EVALUATE, "evals run", "golden cases against the serving engine"),
-        _unit(Group.EVALUATE, "evals compare", "fail on a suite below its baseline"),
+        _unit(Group.SKILLS, f"skills train {skill}", f"LoRA adapter on {skill}") for skill in skills
+    ]
+    units += [
+        _unit(Group.EVALUATE, "evals", "golden cases against the engine, gated on the baseline"),
+        _unit(Group.EVALUATE, "matrix", "score the composition matrix"),
+        _unit(Group.EVALUATE, "matrix --train", "train everything, then score the matrix"),
+        _unit(Group.INSPECT, "sessions", "every session, newest first"),
         _unit(Group.INSPECT, "runs", "every run record"),
         _unit(Group.INSPECT, "config", "the resolved configuration"),
-        _unit(Group.INSPECT, "skill list", "skills and what is trained"),
-        _unit(Group.DEPLOY, "image", "build the CUDA training image"),
-        _unit(Group.DEPLOY, "image cpu", "build the CPU training image"),
+        _unit(Group.DEPLOY, "image", "build the engine image"),
     ]
     return units
 

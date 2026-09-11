@@ -64,7 +64,7 @@ log_dir = ".bijou/logs"
 status_interval_secs = 5.0
 
 # ---------------------------------------------------------------- the skill server
-# engine serve-skills: the skill bank over HTTP, for an agent on another machine.
+# engine serve --bank: the skill bank over HTTP, for an agent on another machine.
 [serve]
 host = "127.0.0.1"
 port = 8100
@@ -88,8 +88,8 @@ seed = 3
 
 # ================================================================ the agent
 # The agent in apps/engine: an LLM plans and picks diffusion skills, subagents act with tools and MCP.
-# Secrets and per-machine URLs live in .env: BIJOU_AGENT__LLM__BASE_URL, ..._API_KEY,
-# BIJOU_AGENT__MCP__PLAYWRIGHT_URL. Every prompt the agent writes is in [agent.prompt]
+# Secrets and per-machine URLs live in .env: BIJOU_AGENT__LLM__BASE_URL and ..._API_KEY.
+# Every prompt the agent writes is in [agent.prompt]
 # with a default in apps/engine/core/config/agent.py; set a key here to change the wording.
 
 # The chat model that plans, selects skills and drives each subagent. llama-server by default.
@@ -100,7 +100,7 @@ max_tokens = 1024
 temperature = 0.2
 timeout_secs = 120.0
 
-# The skill bank: local loads it in this process; http reaches engine serve-skills at url.
+# The skill bank: local loads it in this process; http reaches engine serve --bank at url.
 # Unset gen_length and steps use [sampling].
 [agent.skills]
 mode = "local"
@@ -115,6 +115,8 @@ retry_cap_ms = 8000
 run_timeout_secs = 600.0
 tool_timeout_secs = 60.0
 max_tool_output_chars = 6000
+# Characters of each prompt and reply kept on its trace event and span; 0 keeps none.
+record_content_chars = 32000
 
 # max_steps is how many subagents one request may use; concurrency how many run at once.
 [agent.planning]
@@ -140,7 +142,6 @@ fetch_timeout_secs = 20.0
 fetch_allowed_domains = []
 user_agent = "bijou-engine/0.1"
 
-# Setting playwright_url in .env adds the browser server; just browser starts it.
 [agent.mcp]
 max_description_chars = 200
 
@@ -172,6 +173,15 @@ dir = ".bijou/traces"
 [agent.http]
 host = "127.0.0.1"
 port = 8200
+
+# ================================================================ telemetry
+# Spans over OTLP to Phoenix. otlp_endpoint is per-machine and lives in .env as
+# BIJOU_TELEMETRY__OTLP_ENDPOINT, for example http://127.0.0.1:6006/v1/traces; empty sends none.
+# Prometheus metrics are always served at /metrics on engine serve and engine serve --bank.
+[telemetry]
+service_name = "bijou-engine"
+sample_ratio = 1.0
+export_timeout_secs = 10.0
 
 # ================================================================ evals
 # apps/evals: golden cases against a serving engine, just serve.

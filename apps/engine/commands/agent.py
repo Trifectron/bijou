@@ -1,4 +1,4 @@
-"""Commands for the agent: run a request, confirm an action, serve, and inspect what it did."""
+"""Commands for the agent: run a request, confirm an action, serve, and look through sessions."""
 
 from __future__ import annotations
 
@@ -6,46 +6,21 @@ import asyncio
 from typing import Annotated
 
 import typer
-from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from engine.commands.app import app
-from engine.core.config import AgentConfig, Config, load
+from engine.commands.app import app, console, fail, settings
 from engine.core.types.agent import RunResult, RunStatus, SessionSummary
-from engine.core.types.errors import EngineError, SkillRuntimeError
-from engine.patterns.miner import PatternMiner, write_proposals
-from engine.stores.sessions import SqliteSessionStore
-from engine.wiring import open_harness, skill_runtime
+from engine.core.types.errors import EngineError
+from engine.memory.sessions import SqliteSessionStore
+from engine.wiring import open_agent
 
-console = Console()
-err = Console(stderr=True)
-
-sessions_app = typer.Typer(no_args_is_help=True, help="Every session, indexed.")
-app.add_typer(sessions_app, name="sessions")
+STATUS_STYLE = {RunStatus.ANSWERED: "green", RunStatus.AWAITING_CONFIRMATION: "yellow"}
 
 
-def _full() -> Config:
-    try:
-        return load()
-    except (EngineError, ValueError) as exc:
-        err.print(f"[red]error[/red] {exc}")
-        raise typer.Exit(1) from exc
-
-
-def _config() -> AgentConfig:
-    return _full().agent
-
-
-def _fail(exc: Exception) -> None:
-    err.print(f"[red]error[/red] {exc}")
-    raise typer.Exit(1)
-
-
-STATUS_STYLE = {
-    RunStatus.ANSWERED: "green",
-    RunStatus.AWAITING_CONFIRMATION: "yellow",
-}
+def _status(status: RunStatus) -> str:
+    style = STATUS_STYLE.get(status, "red")
+    return f"[{style}]{status.value}[/{style}]"
 
 
 def _show(result: RunResult) -> None:
@@ -57,24 +32,22 @@ def _show(result: RunResult) -> None:
     for column in ("step", "goal", "status", "skills", "tools", "turns"):
         table.add_column(column, overflow="fold")
     for step in result.steps:
-        style = STATUS_STYLE.get(step.status, "red")
         table.add_row(
             step.id,
             step.goal,
-            f"[{style}]{step.status.value}[/{style}]",
+            _status(step.status),
             ", ".join(step.skills) or "[dim]none[/dim]",
             ", ".join(dict.fromkeys(step.tools)) or "[dim]none[/dim]",
             str(step.turns),
         )
     console.print(table)
-    style = STATUS_STYLE.get(result.status, "red")
     console.print(
         Panel(
             result.answer or "[dim]no answer[/dim]",
-            title=f"[{style}]{result.status.value}[/{style}]",
+            title=_status(result.status),
             title_align="left",
             subtitle=(
-                f"{result.usage.prompt_tokens}+{result.usage.completion_tokens} tokens · "
+                f"{result.usage.prompt_tokens}+{result.usage.completion_tokens} tokens, "
                 f"{result.duration_ms / 1000:.1f}s"
             ),
             subtitle_align="right",
@@ -91,11 +64,11 @@ def run(
     as_json: Annotated[bool, typer.Option("--json", help="Print the result as JSON.")] = False,
 ) -> None:
     """Plan, equip skills, act and answer. Asks before any action that needs confirmation."""
-    cfg = _full()
+    cfg = settings()
 
     async def go() -> None:
-        async with open_harness(cfg) as harness:
-            result = await harness.orchestrator.run(request, resume)
+        async with open_agent(cfg) as agent:
+            result = await agent.orchestrator.run(request, resume)
             while True:
                 if as_json:
                     typer.echo(result.model_dump_json(indent=2))
@@ -105,14 +78,12 @@ def run(
                 if pending is None or as_json:
                     return
                 approve = typer.confirm(f"{pending.summary}\nAllow it?", default=False)
-                result = await harness.orchestrator.confirm(
-                    result.session_id, pending.token, approve
-                )
+                result = await agent.orchestrator.confirm(result.session_id, pending.token, approve)
 
     try:
         asyncio.run(go())
     except EngineError as exc:
-        _fail(exc)
+        fail(exc)
 
 
 @app.command()
@@ -122,135 +93,65 @@ def confirm(
     deny: Annotated[bool, typer.Option("--deny", help="Decline instead of approving.")] = False,
 ) -> None:
     """Approve or decline the action a session is waiting on, and carry it on."""
-    cfg = _full()
+    cfg = settings()
 
     async def go() -> RunResult:
-        async with open_harness(cfg) as harness:
-            return await harness.orchestrator.confirm(session_id, token, not deny)
+        async with open_agent(cfg) as agent:
+            return await agent.orchestrator.confirm(session_id, token, not deny)
 
     try:
         _show(asyncio.run(go()))
     except EngineError as exc:
-        _fail(exc)
+        fail(exc)
 
 
 @app.command()
-def serve() -> None:
-    """Serve the agent over HTTP on agent.http."""
+def serve(
+    bank: Annotated[
+        bool,
+        typer.Option("--bank", help="Serve only the skill bank, for an agent on another machine."),
+    ] = False,
+) -> None:
+    """Serve the agent over HTTP on agent.http, or with --bank the skill bank on serve.port."""
     import uvicorn
 
-    from engine.routes.agent import create_app
+    cfg = settings()
+    if bank:
+        from engine.api.bank import serve as serve_bank
 
-    cfg = _full()
+        try:
+            serve_bank(cfg)
+        except EngineError as exc:
+            fail(exc)
+        return
+    from engine.api.agent import create_app
+
     uvicorn.run(create_app(cfg), host=cfg.agent.http.host, port=cfg.agent.http.port)
 
 
 @app.command()
-def skills() -> None:
-    """What the skill bank can equip, in this process or at agent.skills.url."""
-    cfg = _full()
-    where = "this process" if cfg.agent.skills.mode == "local" else cfg.agent.skills.url
-
-    async def go() -> None:
-        runtime = skill_runtime(cfg)
-        try:
-            listed = await runtime.catalog()
-        finally:
-            await runtime.aclose()
-        table = Table(title=f"skills in {where}", title_justify="left")
-        for column in ("skill", "trained", "description"):
-            table.add_column(column, overflow="fold")
-        for skill in listed:
-            mark = "[green]yes[/green]" if skill.trained else "[dim]no[/dim]"
-            table.add_row(skill.name, mark, skill.description)
-        console.print(table)
-
+def sessions(
+    query: Annotated[
+        str | None, typer.Argument(help="Words to find in requests, answers and steps.")
+    ] = None,
+    show: Annotated[str | None, typer.Option("--show", help="Print one session in full.")] = None,
+    limit: Annotated[int, typer.Option(min=1, help="At most this many.")] = 20,
+) -> None:
+    """Every session, newest first, or those matching every word of a query."""
+    cfg = settings().agent
+    store = SqliteSessionStore(cfg.sessions.path)
     try:
-        asyncio.run(go())
-    except SkillRuntimeError as exc:
-        _fail(exc)
-
-
-@app.command()
-def patterns(
-    write: Annotated[
-        bool, typer.Option("--write", help="Write each proposal as a spec for review.")
-    ] = False,
-) -> None:
-    """Recurring work no skill covered, proposed as new skills."""
-    full = _full()
-    cfg = full.agent
-    store = SqliteSessionStore(cfg.sessions.path)
-
-    async def existing() -> set[str]:
-        runtime = skill_runtime(full)
-        try:
-            return {s.name for s in await runtime.catalog()}
-        except SkillRuntimeError:
-            err.print("[yellow]skill bank unavailable; names are not checked against it[/yellow]")
-            return set()
-        finally:
-            await runtime.aclose()
-
-    proposals = PatternMiner(store, cfg.patterns).propose(asyncio.run(existing()))
-    store.close()
-    if not proposals:
-        console.print(
-            f"[dim]nothing recurs in {cfg.patterns.min_occurrences} or more sessions yet[/dim]"
-        )
-        return
-    table = Table(title="proposed skills", title_justify="left")
-    for column in ("skill", "seen", "sessions", "pairs", "description"):
-        table.add_column(column, overflow="fold")
-    for p in proposals:
-        table.add_row(
-            p.name, str(p.occurrences), str(len(p.sessions)), str(len(p.pairs)), p.description
-        )
-    console.print(table)
-    if write:
-        written, skipped = write_proposals(proposals, cfg.patterns.proposals_dir)
-        for path in written:
-            console.print(f"wrote [bold]{path}[/bold]")
-        for path in skipped:
-            console.print(f"[dim]kept {path}, already there[/dim]")
-        if written:
-            console.print("review each, set approved to true, then: just collect run <file>")
-
-
-@sessions_app.command("list")
-def sessions_list(
-    limit: Annotated[int, typer.Option(min=1, help="Show the newest N.")] = 20,
-) -> None:
-    """Every session, newest first."""
-    cfg = _config()
-    store = SqliteSessionStore(cfg.sessions.path)
-    _summaries(store.recent(limit), f"sessions in {cfg.sessions.path}")
-    store.close()
-
-
-@sessions_app.command("search")
-def sessions_search(
-    query: Annotated[str, typer.Argument(help="Words to find in requests, answers and steps.")],
-    limit: Annotated[int, typer.Option(min=1)] = 20,
-) -> None:
-    """Sessions matching every word of the query."""
-    cfg = _config()
-    store = SqliteSessionStore(cfg.sessions.path)
-    _summaries(store.search(query, limit), f"sessions matching {query!r}")
-    store.close()
-
-
-@sessions_app.command("show")
-def sessions_show(session_id: Annotated[str, typer.Argument(help="A session id.")]) -> None:
-    """One session in full, as stored."""
-    cfg = _config()
-    store = SqliteSessionStore(cfg.sessions.path)
-    record = store.get(session_id)
-    store.close()
-    if record is None:
-        err.print(f"[red]error[/red] no session {session_id}")
-        raise typer.Exit(1)
-    typer.echo(record.model_dump_json(indent=2))
+        if show is not None:
+            record = store.get(show)
+            if record is None:
+                fail(KeyError(f"no session {show}"))
+            typer.echo(record.model_dump_json(indent=2))
+            return
+        rows = store.search(query, limit) if query else store.recent(limit)
+    finally:
+        store.close()
+    title = f"sessions matching {query!r}" if query else f"sessions in {cfg.sessions.path}"
+    _summaries(rows, title)
 
 
 def _summaries(rows: list[SessionSummary], title: str) -> None:
@@ -261,16 +162,7 @@ def _summaries(rows: list[SessionSummary], title: str) -> None:
     for column in ("session", "started", "status", "request", "answer"):
         table.add_column(column, overflow="fold")
     for s in rows:
-        style = STATUS_STYLE.get(s.status, "red")
         table.add_row(
-            s.id,
-            f"{s.created_at:%Y-%m-%d %H:%M}",
-            f"[{style}]{s.status.value}[/{style}]",
-            s.request,
-            s.answer,
+            s.id, f"{s.created_at:%Y-%m-%d %H:%M}", _status(s.status), s.request, s.answer
         )
     console.print(table)
-
-
-if __name__ == "__main__":
-    app()

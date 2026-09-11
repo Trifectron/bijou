@@ -25,7 +25,7 @@ else
   echo "  MISSING dependencies  run: just setup"; ok=1
 fi
 torch=$(uv run --no-sync python -c "import torch; print(torch.__version__)" 2>/dev/null)
-[ -n "$torch" ] && echo "  ok      torch $torch" || echo "  absent  torch       run: just setup-train (or setup-train-cpu)"
+[ -n "$torch" ] && echo "  ok      torch $torch" || echo "  absent  torch       run: just setup cuda (or cpu)"
 echo "checkpoints:"
 checkpoint=$(uv run --no-sync python -c \
   "from engine.core.config import load; c = load(); print(c.paths.base_checkpoints / (c.backend.checkpoint + '.pt') if c.backend.checkpoint else '')" 2>/dev/null)
@@ -48,6 +48,9 @@ llm=$(uv run --no-sync python -c \
   "from engine.core.config import load; print(load().agent.llm.base_url)" 2>/dev/null)
 [ -n "$llm" ] && probe "chat" "${llm%/}/models" "start llama-server, or set BIJOU_AGENT__LLM__BASE_URL"
 probe "engine" "http://127.0.0.1:8200/health" "run: just serve"
+probe "phoenix" "http://127.0.0.1:6006/" "run: just up observe"
+probe "prom" "http://127.0.0.1:9090/-/ready" "run: just up observe"
+probe "grafana" "http://127.0.0.1:3000/api/health" "run: just up observe"
 echo "gpu:"
 if command -v nvidia-smi >/dev/null 2>&1; then
   nvidia-smi --query-gpu=name,memory.total --format=csv,noheader | sed 's/^/  /'

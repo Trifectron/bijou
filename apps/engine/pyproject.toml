@@ -13,6 +13,9 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn>=0.32",
     "mcp>=1.9",
+    "prometheus-client>=0.21",
+    "opentelemetry-sdk>=1.29",
+    "opentelemetry-exporter-otlp-proto-http>=1.29",
 ]
 
 [project.optional-dependencies]
@@ -47,12 +50,11 @@ packages = [
     "engine.backends",
     "engine.runtime",
     "engine.agent",
-    "engine.model",
+    "engine.clients",
     "engine.tools",
-    "engine.stores",
-    "engine.patterns",
+    "engine.memory",
+    "engine.telemetry",
     "engine.collect",
-    "engine.experiments",
-    "engine.routes",
+    "engine.api",
     "engine.commands",
 ]

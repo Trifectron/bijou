@@ -13,7 +13,7 @@ from engine.backends.nanodiff import NanoDiffBackend
 from engine.core.config import Config
 from engine.core.determinism import seed_everything
 from engine.core.runs import RunRecord, digest
-from engine.core.types.model import AdapterSpec, Sample
+from engine.core.types.diffusion import AdapterSpec, Sample
 from engine.skills import load as load_skill
 
 

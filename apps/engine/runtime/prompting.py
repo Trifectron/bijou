@@ -14,7 +14,7 @@ from dataclasses import dataclass, replace
 from engine.backends.nanodiff import NanoDiffBackend
 from engine.core.config import Config
 from engine.core.protocols import Skill
-from engine.core.types.model import AdapterState, Sample
+from engine.core.types.diffusion import AdapterState, Sample
 from engine.routing.phase import PhaseSchedule
 from engine.runtime.evaluate import score_condition
 from engine.skills import load as load_skill

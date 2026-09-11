@@ -36,9 +36,9 @@ def test_every_catalog_unit_is_a_just_recipe():
         assert unit.args[0] in recipes, unit.id
 
 
-def test_every_skill_has_a_train_and_a_full_finetune_unit():
+def test_every_skill_has_a_train_unit():
     ids = {u.id for u in catalog(("a", "b"))}
-    assert {"skill train a", "skill train a --full-finetune", "skill train b"} <= ids
+    assert {"skills train a", "skills train b"} <= ids
 
 
 def test_catalog_ids_are_unique():

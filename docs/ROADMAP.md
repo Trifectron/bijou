@@ -46,7 +46,6 @@ not earning its keep; the skill bank moves to an autoregressive LoRA server behi
 
 - [ ] `just serve` against llama-server with `json_extract` trained
 - [ ] `just evals run`, then commit the first `apps/evals/baseline.json`
-- [ ] The browser through Playwright MCP on a read-only task
 
 ### A2. The skill loop, end to end
 

@@ -22,8 +22,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from engine.core.types.diffusion import Sample, Score, Split
 from engine.core.types.errors import EngineError
-from engine.core.types.model import Sample, Score, Split
 
 SPLITS: tuple[Split, ...] = ("train", "dev", "eval")
 PROMPT = "{instruction}\n\n{text}"

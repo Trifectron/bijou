@@ -7,7 +7,7 @@ one at a time on narrow auto-gradable tasks, and are activated in combinations a
 points along the denoising trajectory.
 
 The agent sits on top, in the same engine. An LLM plans a request into steps and picks which
-skills each step equips; subagents act through tools, MCP servers and a browser, and use the
+skills each step equips; subagents act through tools and MCP servers, and use the
 equipped skills through the diffusion model. Every run is a session, indexed, and recurring work
 that no skill covers is proposed as a new skill, collected with a teacher model, and trained into
 the bank.
@@ -25,7 +25,7 @@ flowchart LR
         S[(sessions<br/>SQLite FTS5)]
         P[pattern miner]
         C[collect<br/>teacher -> dataset skill]
-        T[runtime<br/>train · evaluate]
+        T[runtime<br/>train · evaluate · matrix]
         E -->|SkillRuntime| K
         E --> S
         P --> S
@@ -35,7 +35,7 @@ flowchart LR
     end
     E -->|OpenAI-compatible| L[llama-server<br/>chat model]
     C -->|OpenAI-compatible| L
-    E -->|MCP| M[Playwright MCP<br/>other MCP servers]
+    E -->|MCP| M[MCP servers]
     V[apps/evals] -->|POST /run| E
     X[apps/cli] -->|just recipes| engine
 ```
@@ -52,17 +52,18 @@ Apps never import each other. `import-linter` enforces it in `just check`.
 
 ```
 commands                             the engine command
-routes | experiments                 HTTP: the agent, the skill bank; the composition matrix
+api                                  HTTP: the agent, the skill bank
 wiring                               builds concrete implementations, opens MCP servers
-agent | model | tools | stores | patterns | collect
-runtime                              train, evaluate, the skill bank
+agent | clients | tools | memory | collect
+runtime                              train, evaluate, the composition matrix, the skill bank
+telemetry                            Prometheus metrics and OpenTelemetry spans from trace events
 {adapters, routing, skills} and backends
 core                                 config, types, protocols, doubles, runs, determinism
 ```
 
 A package imports one below it, never a sibling. Two contracts sharpen the rule: the agent side
-(`agent`, `tools`, `stores`, `patterns`) never imports torch, `runtime`, `backends` or
-`adapters`, so the loop is tested with no model stack; and only `model`, `tools` and `collect`
+(`agent`, `tools`, `memory`) never imports torch, `runtime`, `backends` or
+`adapters`, so the loop is tested with no model stack; and only `clients`, `tools` and `collect`
 open network connections.
 
 `core` holds what everything builds on and nothing that does work. `core/types` splits into
@@ -90,26 +91,29 @@ skill bank: `SkillBank` builds the base once, loads every trained adapter, and e
 through a `PhaseRouter` over the shared `AdapterState`, under a lock. A request naming an
 untrained skill, or a schedule boundary inside a sampler block, is refused with the reason.
 
-`model` is the two models as the agent sees them: `OpenAIChat` for the LLM, and the skill bank as
-`LocalSkillRuntime` (in process, loaded on first use, run off the event loop) or
-`HttpSkillRuntime` (a bank at `agent.skills.url`). `agent.skills.mode` picks one.
+`clients` is the two models as the agent sees them: `OpenAIChat` for the LLM, and the skill bank
+as `LocalBank` (in process, loaded on first use, run off the event loop) or `RemoteBank` (a bank
+at `agent.skills.url`). `agent.skills.mode` picks one.
+
+`memory` is what the agent remembers: the session index and the pattern miner that reads it.
 
 `collect` turns an approved skill spec into a dataset skill: the spec's own pairs, then examples
 from a teacher LLM, deduplicated, shuffled by `collect.seed`, split once into files, recorded in a
 `RunRecord`. A spec that is not approved is refused.
 
-`routes` serves the agent (`engine serve`) and the bank alone (`engine serve-skills`).
+`api` serves the agent (`engine serve`) and the bank alone (`engine serve --bank`). `runtime`
+also holds the composition matrix, the research eval.
 
 ## The agent
 
 | Protocol | Implementations | What it is |
 |---|---|---|
-| `ChatModel` | `model.openai_compat.OpenAIChat` | the LLM: plans, selects, drives each loop |
-| `SkillRuntime` | `model.local_skills.LocalSkillRuntime`, `model.skill_server.HttpSkillRuntime` | the skill bank |
+| `ChatModel` | `clients.chat.OpenAIChat` | the LLM: plans, selects, drives each loop |
+| `SkillRuntime` | `clients.local_bank.LocalBank`, `clients.remote_bank.RemoteBank` | the skill bank |
 | `Tool` | `tools.builtin`, `tools.mcp.McpTool`, `agent.skill_tool.SkillTool` | a capability |
 | `Policy` | `agent.policy.RiskPolicy` | allow, deny, or hold for the user |
 | `TraceSink` | `agent.trace.JsonlTrace`, `Collector`, `Fanout` | where events go |
-| `SessionStore` | `stores.sessions.SqliteSessionStore` | the session index |
+| `SessionStore` | `memory.sessions.SqliteSessionStore` | the session index |
 
 Every protocol has a double in `core/doubles.py`, which is how every agent test runs whole
 requests with no model, network or disk.
@@ -183,10 +187,10 @@ the step. Retryable model errors are retried with backoff inside the deadline.
 
 | Class | Examples | Behaviour |
 |---|---|---|
-| `read_public` | `current_time`, `fetch_url`, `run_skill`, `browser_navigate` | run |
+| `read_public` | `current_time`, `fetch_url`, `run_skill`, an MCP tool named like navigate or read | run |
 | `read_authenticated` | a page in the user's own session | deny unless `policy.allow_authenticated_reads` |
-| `prepare_write` | `browser_type`, `browser_fill_form` | run |
-| `external_write` | `browser_click`, submit, post, an unrecognised MCP tool | confirm immediately before |
+| `prepare_write` | an MCP tool named like type or fill_form | run |
+| `external_write` | an MCP tool named like click or submit, an unrecognised MCP tool | confirm immediately before |
 | `destructive` | delete, cancel | confirm immediately before |
 | `forbidden` | | deny, whatever the settings |
 
@@ -195,8 +199,8 @@ everything needed to resume it; `confirm` checks the token, expiry and payload h
 declines the call, and carries the step and the rest of the plan on.
 
 MCP tools are named `server_tool`, classed by name unless the server's config sets a risk, and
-treated as sequential. Setting `BIJOU_AGENT__MCP__PLAYWRIGHT_URL` adds the Playwright server as
-`browser`; a computer-use server is another `[[agent.mcp.servers]]` entry.
+treated as sequential. Each server is one `[[agent.mcp.servers]]` entry, over Streamable HTTP or
+stdio.
 
 ### Sessions and patterns
 
@@ -210,16 +214,47 @@ sessions, with the steps' answers as worked pairs. It is rules, not a model call
 written with `approved: false`, and collection refuses them until a person sets it:
 
 ```
-engine patterns --write  ->  data/proposals/name.json  ->  a person approves
-  ->  engine collect run  ->  data/skills/name  ->  engine skill train  ->  the bank equips it
+engine skills propose --write  ->  data/proposals/name.json  ->  a person approves
+  ->  engine skills collect  ->  data/skills/name  ->  engine skills train  ->  the bank equips it
 ```
 
 ### Tracing
 
 One JSONL file per session under `.bijou/traces`, one line per event: run started, plan, skill
-pick, every model call with tokens and duration, every policy decision, every tool call and
-result, every step's end, confirmations, notices. A run's events also come back in its result,
-which is what evals read.
+pick, every model call with tokens, duration, the prompt and the reply (up to
+`agent.loop.record_content_chars`), every policy decision, every tool call and result, every
+step's end, confirmations, notices. A run's events also come back in its result, which is what
+evals read.
+
+## Inference and observability
+
+| What | Runs on | Started by |
+|---|---|---|
+| Chat model | llama-server, OpenAI-compatible, `--jinja --metrics` | the host, or `just up model` |
+| Diffusion model | the engine's own PyTorch sampler, in the engine process or `engine serve --bank` | `just serve` |
+| Traces | Phoenix, OTLP over HTTP | `just up observe` |
+| Metrics | Prometheus, scraping the engine, the bank, llama-server and the GPU exporter | `just up observe` (`just up gpu` for the exporter) |
+| Dashboards | Grafana: Bijou engine, Bijou inference | `just up observe` |
+
+The diffusion model runs eager, one generation at a time under the bank's lock, with no prefix
+K/V cache, so a phase schedule can switch skills mid-generation.
+
+`engine.telemetry` reads the trace events the agent already emits; neither the loop nor any tool
+knows it exists.
+
+- `MetricsSink` counts events into Prometheus metrics in a registry the running agent owns,
+  served at `/metrics` on `engine serve`: runs, steps, model calls by purpose, tokens, tool
+  calls and latency, policy decisions, skill picks. The skill bank records its own: generations
+  by skills and outcome, generation latency, lock wait, tokens, what it loaded. They are served
+  by whichever process holds the bank.
+- `OtelSink` builds OpenInference spans from the same events and exports them over OTLP when
+  `BIJOU_TELEMETRY__OTLP_ENDPOINT` is set: `agent.run` (CHAIN, with `session.id`), a `step` per
+  plan step (AGENT, with its skills), an `llm` span per model call (with the prompt, the reply
+  and tokens) and a `tool` span per tool call. A run waiting on a confirmation ends its span;
+  `confirm` opens `agent.confirm` in the same session.
+
+`deploy/compose.yml` holds the services in profiles; nothing starts without one.
+`deploy/inference/README.md` covers the chat model and VRAM on a 6 GB GPU.
 
 ## Evals
 
@@ -245,9 +280,13 @@ links nothing in the repo and reads only its own keys from `bijou.toml`.
 | Base model | nanoDiff 150M SFT checkpoint, vendored as a submodule | `third_party/nanoDiff`, `[backend]` |
 | Model stack | PyTorch (CUDA or CPU build), tiktoken, NumPy | engine `train`, `cuda`, `cpu` extras |
 | Chat model | any OpenAI-compatible server; llama-server with Qwen3 by default | `[agent.llm]`, `[collect]` |
-| HTTP | FastAPI and uvicorn to serve, httpx to call | `engine/routes`, `engine/model` |
-| MCP | the official `mcp` SDK `Client`; Playwright MCP for the browser | `engine/tools/mcp.py`, `just browser` |
-| Sessions | SQLite with FTS5 | `engine/stores/sessions.py` |
+| HTTP | FastAPI and uvicorn to serve, httpx to call | `engine/api`, `engine/clients` |
+| MCP | the official `mcp` SDK `Client` | `engine/tools/mcp.py` |
+| Sessions | SQLite with FTS5 | `engine/memory/sessions.py` |
+| Chat inference | llama.cpp `llama-server` (CUDA image in compose) | `deploy/compose.yml` profile `model` |
+| Traces | OpenTelemetry SDK, OTLP over HTTP, Phoenix | `engine/telemetry/otel.py`, profile `observe` |
+| Metrics | prometheus-client, Prometheus, Grafana, nvidia GPU exporter | `engine/telemetry/metrics.py`, `deploy/monitoring` |
+| Services | Docker Compose with profiles | `deploy/compose.yml`, `just up` / `just down` |
 | Config | pydantic, pydantic-settings over one `bijou.toml` | `engine/core/config`, each app's `core/config.py` |
 | Commands | Typer, Rich | `engine`, `evals` |
 | Console | Textual | `apps/cli` |
@@ -296,5 +335,5 @@ router waits until there are sessions to learn from.
 
 Adapter paging and multi-GPU serving. The bank holds every adapter on one base.
 
-Authenticated browser sessions. `read_authenticated` is denied by default, and nothing stores a
+Authenticated sessions. `read_authenticated` is denied by default, and nothing stores a
 credential.

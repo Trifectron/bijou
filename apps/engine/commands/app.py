@@ -1,13 +1,18 @@
-"""The engine command's root. The model and agent command modules register onto it."""
+"""The engine command's root, and what every command module shares."""
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, NoReturn
 
 import typer
 from rich.console import Console
 
 from engine import __version__
+from engine.core.config import Config, load
+from engine.core.types.errors import EngineError
+
+console = Console()
+err = Console(stderr=True)
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -15,15 +20,29 @@ app = typer.Typer(
     rich_markup_mode="rich",
     help=(
         "A masked diffusion LM with a bank of LoRA skills, and the agent that equips them.\n\n"
-        "[bold]engine run[/bold] sends a request through the agent. [bold]engine skill list[/bold]"
-        " and [bold]engine config[/bold] need no GPU."
+        "[bold]engine run[/bold] sends a request through the agent. "
+        "[bold]engine skills list[/bold] and [bold]engine config[/bold] need no GPU."
     ),
 )
 
 
+def fail(exc: Exception) -> NoReturn:
+    """Report a known failure without a traceback and exit 1."""
+    err.print(f"[red]error[/red] {exc}")
+    raise typer.Exit(1)
+
+
+def settings() -> Config:
+    """The configuration, or a clean exit naming what is wrong with it."""
+    try:
+        return load()
+    except (EngineError, ValueError) as exc:
+        fail(exc)
+
+
 def _version(value: bool) -> None:
     if value:
-        Console().print(__version__)
+        console.print(__version__)
         raise typer.Exit
 
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import random
 
-from engine.core.types.model import Sample, Score, Split
+from engine.core.types.diffusion import Sample, Score, Split
 
 NAME = "json_extract"
 DESCRIPTION = (

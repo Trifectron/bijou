@@ -44,8 +44,8 @@ jobs:
           enable-cache: true
       - uses: extractions/setup-just@v4
       # CPU wheels only. The CUDA build is gigabytes and nothing here needs a device.
-      - run: just setup-train-cpu
-      - run: just check-model
+      - run: just setup cpu
+      - run: just test model
 
   # A vendored submodule that moved without a matching parity test is a silent
   # behaviour change in the one dependency we reimplement.

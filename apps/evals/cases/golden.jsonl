@@ -1,6 +1,6 @@
 {"id": "time-of-day", "request": "What day of the week is it today?", "suites": ["status", "plan", "tools", "latency"], "expect": {"status": "answered", "max_steps": 1, "tools": ["current_time"], "max_latency_ms": 60000}}
 {"id": "extract-person", "request": "Turn this into JSON with name, role, city and years: Ana has worked as an engineer in Tempe for 7 years.", "suites": ["status", "skills", "answer"], "expect": {"status": "answered", "skills": ["json_extract"], "answer_contains": ["Ana", "Tempe"]}}
-{"id": "amazon-jobs", "request": "Keep me up with Amazon applied scientist jobs: what is open right now?", "suites": ["status", "tools"], "expect": {"status": "answered", "tools": ["fetch_url", "browser_*"]}}
+{"id": "amazon-jobs", "request": "Keep me up with Amazon applied scientist jobs: what is open right now?", "suites": ["status", "tools"], "expect": {"status": "answered", "tools": ["fetch_url"]}}
 {"id": "poem-no-skill", "request": "Write a two-line poem about the desert.", "suites": ["status", "skills", "tools"], "expect": {"status": "answered", "no_skills": true, "no_tools": true}}
 {"id": "date-then-extract", "request": "Tell me today's date, then pull name, role, city and years out of: Ben has worked as an analyst in Seattle for 3 years.", "suites": ["plan", "skills", "answer"], "expect": {"min_steps": 2, "max_steps": 3, "skills": ["json_extract"], "answer_contains": ["Seattle"]}}
 {"id": "recall-earlier", "request": "What did I ask you about Amazon jobs before?", "suites": ["tools"], "expect": {"tools": ["recall_sessions"]}}

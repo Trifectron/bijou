@@ -10,28 +10,26 @@ for why. Do not contradict them; propose an edit to the doc instead.
 `just` is the entrypoint (`just` lists recipes). Install: https://just.systems.
 
 ```
-just doctor | env | hooks | vendor | bootstrap   # first run
-just check            # fmt-check, lint, layering, types, tests — the gate; CI and the hook run it
-just fmt              # format in place
-just setup            # every app, no torch
-just setup-train      # plus CUDA torch for the engine; setup-train-cpu for CPU torch
+just bootstrap        # first run: .env, hooks, submodule, dependencies
+just doctor           # what is installed, downloaded and running
+just setup [cpu|cuda] # every app; cpu or cuda adds the model stack
 just checkpoints      # the configured base checkpoint, from the Hugging Face Hub
+just check            # format, lint, layering, types, tests — the gate; CI and the hook run it
+just test [model|gpu] # tests; model insists on torch, gpu runs the GPU tests
+just fmt              # format in place
 just lock             # re-resolve uv.lock after changing any pyproject.toml
-just console          # the developer console (TUI); alias: just cli
 
-just serve            # the engine over HTTP: the agent, with the skill bank in process
-just serve-skills     # the skill bank alone, for an agent elsewhere
-just browser          # Playwright MCP, the browser the agent drives
+just serve [--bank]   # the agent over HTTP with the skill bank in process; --bank the bank alone
 just agent "..."      # one request: plan, equip skills, act, answer
-just engine ...       # the engine command: run, confirm, skills, sessions, patterns, skill, ...
-just patterns --write # recurring uncovered work as skill specs for review
-just collect ...      # list, new, run <spec>: approved spec -> dataset skill
-just evals ...        # run, compare, baseline, cases, against a serving engine
-
-just skill list | sample <name> | train <name>
-just evaluate         # score the composition matrix
-just runs             # every run record
-just test-gpu         # the tests needing a GPU and a base checkpoint
+just skills [cmd]     # list (default), sample, grade, train, propose, specs, new, collect
+just sessions [query] # sessions, newest first or matching; --show <id>
+just matrix [--train] # the composition matrix; --train trains everything first
+just runs [id]        # run records; an id prints one
+just config [table]   # the resolved configuration
+just evals [cmd]      # golden cases against just serve, gated on the baseline
+just console          # the developer console (TUI); alias: just cli
+just up [profiles]    # compose: observe (phoenix, prometheus, grafana), model (llama-server), gpu
+just down | logs      # stop the compose services, follow their logs
 ```
 
 A change is not done until `just check` passes.
@@ -62,13 +60,14 @@ Apps never import each other. evals reaches the engine over HTTP (`/run`); the c
 `just` recipes. Inside the engine a package imports one below it, never a sibling:
 
 ```
-commands
-routes | experiments
-wiring
-agent | model | tools | stores | patterns | collect
-runtime
+commands      the engine command
+api           HTTP: the agent, the skill bank
+wiring        builds everything
+agent | clients | tools | memory | collect
+runtime       train, evaluate, the matrix, the skill bank
+telemetry     metrics and spans, built from trace events
 {adapters, routing, skills} and backends
-core
+core          config, types, protocols, doubles, runs
 ```
 
 `scripts/check-deps.sh` runs the contracts in the root `pyproject.toml` under
@@ -76,8 +75,9 @@ core
 same change.
 
 `engine.skills` imports no torch and no network client. Only `engine.backends` imports nanoDiff.
-The agent (`agent`, `tools`, `stores`, `patterns`) never imports the model stack; it reaches the
-diffusion model only through `SkillRuntime`. Only `model`, `tools` and `collect` open connections.
+The agent side (`agent`, `tools`, `memory`) never imports the model stack; it reaches the
+diffusion model only through `SkillRuntime`. Only `clients`, `tools` and `collect` open
+connections.
 
 ## The seams
 
@@ -86,8 +86,8 @@ All in `engine/core/protocols.py`. The diffusion model: `AdapterSite`, `Activati
 `TraceSink`, `SessionStore`, each with a double in `engine/core/doubles.py`. A new replaceable
 dependency gets a protocol and a double in the same change.
 
-`SkillRuntime` has two implementations: `LocalSkillRuntime`, the bank in this process, and
-`HttpSkillRuntime`, a bank served by `engine serve-skills`. `agent.skills.mode` picks one.
+`SkillRuntime` has two implementations in `engine/clients`: `LocalBank`, the bank in this
+process, and `RemoteBank`, a bank served by `engine serve --bank`. `agent.skills.mode` picks one.
 
 ## Config
 
@@ -104,8 +104,8 @@ change. Reject a bad combination at load rather than clamping it at use.
 
 - Lints are the law (`[tool.ruff.lint]`): no bare `print` outside commands, annotations on every
   function, imports sorted. `mypy --strict` covers the engine's `core`, `routing`, `skills`,
-  `agent`, `tools`, `stores`, `patterns`, the chat and skill clients, and evals. Fix at the
-  source rather than adding a `noqa`.
+  `agent`, `tools`, `memory`, the chat and remote bank clients, and evals. Fix at the source
+  rather than adding a `noqa`.
 - No global mutable state except `AdapterState`. Per-run state goes in `RequestContext`.
 - Every train, evaluate and collect run writes a `RunRecord`. A number that is not in a run
   record or an eval report does not go in a table, a doc, or a message.

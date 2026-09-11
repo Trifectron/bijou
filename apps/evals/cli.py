@@ -86,6 +86,14 @@ def run(
     cfg.report_path.write_text(report.model_dump_json(indent=2))
     _print(report)
     console.print(f"report: {cfg.report_path}")
+    if not cfg.baseline_path.exists():
+        console.print("[yellow]no baseline yet[/yellow]; promote this report with: evals baseline")
+        return
+    regressions = reports.compare(report, reports.read_baseline(cfg.baseline_path), cfg.tolerance)
+    if regressions:
+        err.print("[red]regressions[/red] " + "; ".join(regressions))
+        raise typer.Exit(1)
+    console.print("[green]no regressions against the baseline[/green]")
 
 
 @app.command()

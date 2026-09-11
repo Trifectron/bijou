@@ -17,7 +17,7 @@ import asyncio
 import time
 from uuid import uuid4
 
-from engine.agent.call import Stopped, complete
+from engine.agent.llm import Stopped, complete
 from engine.agent.planner import Planner
 from engine.agent.policy import payload_hash
 from engine.agent.selector import SkillSelector
@@ -160,7 +160,13 @@ class Orchestrator:
             )
         else:
             record.answer, record.status = await self._answer(ctx, record)
-            self._emit(ctx, TraceKind.RUN_DONE, status=record.status.value)
+        self._emit(
+            ctx,
+            TraceKind.RUN_DONE,
+            status=record.status.value,
+            answer=record.answer[: self.cfg.loop.record_content_chars],
+            duration_ms=int((time.monotonic() - started) * 1000),
+        )
         self._save(record)
         return RunResult(
             session_id=record.id,

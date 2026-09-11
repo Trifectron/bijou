@@ -1,0 +1,9 @@
+# Loads every dashboard JSON under the mounted dashboards directory into the Bijou folder.
+apiVersion: 1
+providers:
+  - name: bijou
+    type: file
+    folder: Bijou
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
