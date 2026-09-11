@@ -52,3 +52,9 @@ conditions = ["adapters", "tuned-prompt", "full-finetune"]
 shots = [0, 3]
 dev_samples = 100
 seed = 2
+
+[console]
+# The developer console, just console. Every line a unit prints is also appended to log_dir.
+log_lines = 5000
+log_dir = ".bijou/logs"
+status_interval_secs = 5.0

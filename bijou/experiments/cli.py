@@ -191,6 +191,20 @@ def skill_train(
     console.print(f"wrote [bold]{path}[/bold]")
 
 
+# ---------- console ----------
+
+
+@app.command("console")
+def console_command() -> None:
+    """The developer console: run recipes, stream their logs, watch the GPU and artifacts."""
+    from bijou.experiments.console.app import run as run_console
+
+    try:
+        run_console()
+    except BijouError as exc:
+        _fail(exc)
+
+
 # ---------- experiments ----------
 
 

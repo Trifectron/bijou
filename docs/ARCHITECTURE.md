@@ -47,7 +47,9 @@ and the reverse process. Moving to LLaDA or Dream means writing a sibling module
 
 `runtime` composes them: training, scoring one condition, and the tuned-prompt baseline, which
 picks a skill's instruction and worked examples on a dev split with its own seed. `experiments`
-runs the matrix and owns the CLI, and nothing imports it. `eval.conditions` selects the matrix
+runs the matrix and owns the CLI and the developer console, and nothing imports it. The console
+(`experiments/console`) runs every unit as a `just` recipe in a subprocess, so it imports no torch
+and drives the same recipes a person or CI would. `eval.conditions` selects the matrix
 rows: adapter subsets (the empty subset is zero-shot), the tuned prompt, and one full fine-tune
 per skill.
 

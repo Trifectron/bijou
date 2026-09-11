@@ -131,6 +131,22 @@ class Prompting(BaseModel):
         return self
 
 
+class Console(BaseModel):
+    """The developer console. Every line a unit prints is also appended under log_dir."""
+
+    log_lines: int = 5000
+    log_dir: Path = Path(".bijou/logs")
+    status_interval_secs: float = 5.0
+
+    @model_validator(mode="after")
+    def _check(self) -> Console:
+        if self.log_lines <= 0:
+            raise ConfigError("console.log_lines must be positive")
+        if self.status_interval_secs <= 0:
+            raise ConfigError("console.status_interval_secs must be positive")
+        return self
+
+
 class Config(BaseSettings):
     """The whole configuration surface."""
 
@@ -148,6 +164,7 @@ class Config(BaseSettings):
     sampling: Sampling = Field(default_factory=Sampling)
     eval: Eval = Field(default_factory=Eval)
     prompting: Prompting = Field(default_factory=Prompting)
+    console: Console = Field(default_factory=Console)
 
     @classmethod
     def settings_customise_sources(

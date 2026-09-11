@@ -48,6 +48,14 @@ checkpoints *NAMES:
 bootstrap: env hooks vendor setup
     @echo "ready: 'just check' for the gate; 'just setup-train' and 'just checkpoints' on a GPU box"
 
+# ---------- console ----------
+
+# Developer console: run recipes, stream their logs, watch the GPU and artifacts
+console:
+    uv run bijou console
+
+alias cli := console
+
 # ---------- the gate ----------
 
 # Format check, lint, layering, types, tests. CI and the hook run this.
