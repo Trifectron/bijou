@@ -5,10 +5,7 @@ infrastructure for step N+1 before step N reports.
 
 ## 0. Parity and plumbing
 
-- [x] Package layout, dependency rule, gate, CLI
-- [x] Adapter injection, weights on disk, phase schedules, one skill, run records
 - [ ] Base checkpoints pulled and `just test-gpu` green
-- [x] The reimplemented denoising loop matches upstream `generate` token for token with no
       adapter active
 
 Until parity holds, every downstream number is uninterpretable.
@@ -18,7 +15,6 @@ Until parity holds, every downstream number is uninterpretable.
 Null hypothesis is a tuned prompt on the same base model, not zero-shot.
 
 - [ ] Skills: `json_extract`, `normalize`, `fn_call`
-- [x] Conditions per skill: base zero-shot, base tuned prompt, LoRA, full fine-tune
 - [ ] Report each adapter's own score and its damage to the other skills' evals
 
 Kill criterion: no skill beats a tuned prompt outside seed variance.
@@ -36,7 +32,6 @@ Publish the negative result; do not build the router.
 The only diffusion-specific claim.
 
 - [ ] Static, early/late split, and the reversed split on a task needing two skills
-- [x] Boundaries aligned to sampler blocks, or the cache off
 
 Kill criterion: phase routing is indistinguishable from static. Then the diffusion substrate is
 not earning its keep, and the honest response is to say so.
