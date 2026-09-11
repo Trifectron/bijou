@@ -43,14 +43,15 @@ class Runner:
         """Whether a process started for this unit has not exited yet."""
         return unit_id in self._procs
 
-    async def start(self, unit_id: str, args: Sequence[str]) -> None:
-        """Spawn the unit and stream its output until it exits. Raises OSError on spawn."""
+    async def start(self, unit_id: str, args: Sequence[str], stdin: bool = False) -> None:
+        """Spawn the unit and stream its output until it exits. With stdin, send writes to it.
+        Raises OSError on spawn."""
         cmd = [*self.launcher, *args]
         self.on_line(unit_id, "meta", "$ " + " ".join(cmd))
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             cwd=self.root,
-            stdin=asyncio.subprocess.DEVNULL,
+            stdin=asyncio.subprocess.PIPE if stdin else asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             start_new_session=True,
@@ -61,6 +62,18 @@ class Runner:
         task = asyncio.create_task(self._watch(unit_id, proc))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+
+    async def send(self, unit_id: str, text: str) -> bool:
+        """Write one line to the unit's stdin. False when it is not running or takes no input."""
+        proc = self._procs.get(unit_id)
+        if proc is None or proc.stdin is None:
+            return False
+        try:
+            proc.stdin.write(text.encode() + b"\n")
+            await proc.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            return False
+        return True
 
     def stop(self, unit_id: str) -> bool:
         """Send SIGTERM to the unit's process group. False when it is not running."""

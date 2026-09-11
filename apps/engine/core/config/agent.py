@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
@@ -34,11 +33,10 @@ class Llm(_Table):
     timeout_secs: float = 120.0
 
 
-class SkillServer(_Table):
-    """Where the skill bank runs: in this process, or at url, served by engine serve --bank."""
+class Skills(_Table):
+    """How the agent uses the skill bank, which runs in its process. Unset gen_length and steps
+    use [sampling]."""
 
-    mode: Literal["local", "http"] = "local"
-    url: str = "http://127.0.0.1:8100"
     timeout_secs: float = 300.0
     gen_length: int | None = None
     steps: int | None = None
@@ -144,13 +142,6 @@ class Trace(_Table):
     dir: Path = Path(".bijou/traces")
 
 
-class Http(_Table):
-    """The agent's HTTP surface, engine serve."""
-
-    host: str = "127.0.0.1"
-    port: int = 8200
-
-
 class Prompt(_Table):
     """The wording of every prompt the agent writes. Changing it changes behaviour."""
 
@@ -193,7 +184,7 @@ class AgentConfig(_Table):
     """Everything under [agent]."""
 
     llm: Llm = Field(default_factory=Llm)
-    skills: SkillServer = Field(default_factory=SkillServer)
+    skills: Skills = Field(default_factory=Skills)
     loop: Loop = Field(default_factory=Loop)
     planning: Planning = Field(default_factory=Planning)
     policy: Policy = Field(default_factory=Policy)
@@ -202,7 +193,6 @@ class AgentConfig(_Table):
     sessions: Sessions = Field(default_factory=Sessions)
     patterns: Patterns = Field(default_factory=Patterns)
     trace: Trace = Field(default_factory=Trace)
-    http: Http = Field(default_factory=Http)
     prompt: Prompt = Field(default_factory=Prompt)
 
     @model_validator(mode="after")

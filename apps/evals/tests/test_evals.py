@@ -1,9 +1,9 @@
-"""Cases, suites, the runner over fake HTTP, reports and the baseline gate."""
+"""Cases, suites, the runner over a fake engine command, reports and the baseline gate."""
 
 import json
+import sys
 from pathlib import Path
 
-import httpx
 import pytest
 
 from evals import report as reports
@@ -83,32 +83,43 @@ def test_a_fallback_plan_fails_the_plan_suite():
     assert not suites.load("plan").score(case(["plan"], max_steps=1), view).passed
 
 
-def test_the_runner_posts_the_request_and_reports_outages():
-    seen = {}
+def fake_engine(tmp_path, body):
+    script = tmp_path / "engine.py"
+    script.write_text("import json, sys\n" + body)
+    return [sys.executable, str(script)]
 
-    def handler(request):
-        seen["body"] = json.loads(request.content)
-        return httpx.Response(200, json=run_view().model_dump())
 
-    with httpx.Client(transport=httpx.MockTransport(handler), base_url="http://h") as client:
-        assert run_case(case(["status"]), client).session_id == "s1"
-    assert seen["body"]["request"] == "r"
+def test_the_runner_passes_the_request_and_parses_the_result(tmp_path):
+    result = run_view().model_dump() | {"request": "r", "context": {"extra": True}}
+    command = fake_engine(
+        tmp_path,
+        f"json.dump(sys.argv[1:], open({str(tmp_path / 'argv.json')!r}, 'w'))\n"
+        f"print(json.dumps({result!r}, indent=2))\n",
+    )
+    assert run_case(case(["status"]), command, 10.0).session_id == "s1"
+    argv = json.loads((tmp_path / "argv.json").read_text())
+    assert argv == ["run", "--json", "--user", "eval-c", "r"]
 
-    def down(request):
-        raise httpx.ConnectError("refused")
 
-    with (
-        httpx.Client(transport=httpx.MockTransport(down), base_url="http://h") as client,
-        pytest.raises(EvalsError, match="just serve"),
-    ):
-        run_case(case(["status"]), client)
+def test_the_runner_reports_a_failed_engine(tmp_path):
+    failing = fake_engine(tmp_path, "sys.stderr.write('model offline')\nsys.exit(2)\n")
+    with pytest.raises(EvalsError, match="exited 2: model offline.*just agent"):
+        run_case(case(["status"]), failing, 10.0)
+    garbled = fake_engine(tmp_path, "print('not json')\n")
+    with pytest.raises(EvalsError, match="printed no RunResult"):
+        run_case(case(["status"]), garbled, 10.0)
+    slow = fake_engine(tmp_path, "import time\ntime.sleep(5)\n")
+    with pytest.raises(EvalsError, match="no result in 0.5s"):
+        run_case(case(["status"]), slow, 0.5)
+    with pytest.raises(EvalsError, match="not found"):
+        run_case(case(["status"]), [str(tmp_path / "no-such-engine")], 10.0)
 
 
 def test_reports_aggregate_by_suite_and_compare_to_the_baseline():
     results = reports.score(
         case(["status", "tools"], status="answered", tools=["x"]), run_view(), set(suites.NAMES)
     )
-    report = reports.build(results, "http://h", 1)
+    report = reports.build(results, ["engine"], 1)
     rates = {s.suite: s.rate for s in report.suites}
     assert rates == {"status": 1.0, "tools": 0.0}
     baseline = reports.baseline_of(report)

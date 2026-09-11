@@ -44,7 +44,7 @@ not earning its keep; the skill bank moves to an autoregressive LoRA server behi
 
 ### A1. First live runs
 
-- [ ] `just serve` against llama-server with `json_extract` trained
+- [ ] `just chat` against llama-server with `json_extract` trained
 - [ ] `just evals run`, then commit the first `apps/evals/baseline.json`
 
 ### A2. The skill loop, end to end

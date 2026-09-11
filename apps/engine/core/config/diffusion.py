@@ -111,21 +111,17 @@ class Prompting(BaseModel):
         return self
 
 
-class Serve(BaseModel):
-    """The skill server: one base model, every trained LoRA attached, served over HTTP."""
+class Bank(BaseModel):
+    """The skill bank: one base model with every trained LoRA attached, in the agent's process."""
 
     model_config = ConfigDict(extra="forbid")
 
-    host: str = "127.0.0.1"
-    port: int = 8100
     max_gen_length: int = 512
 
     @model_validator(mode="after")
-    def _check(self) -> Serve:
-        if not 0 < self.port < 65536:
-            raise ConfigError("serve.port must be a TCP port")
+    def _check(self) -> Bank:
         if self.max_gen_length <= 0:
-            raise ConfigError("serve.max_gen_length must be positive")
+            raise ConfigError("bank.max_gen_length must be positive")
         return self
 
 

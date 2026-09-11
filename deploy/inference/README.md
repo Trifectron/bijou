@@ -28,10 +28,8 @@ GGUFs download on first run into the `modelcache` volume. Override with `BIJOU_C
 The engine reads `BIJOU_AGENT__LLM__BASE_URL`, default `http://127.0.0.1:8000/v1`:
 
 ```bash
-BIJOU_AGENT__LLM__BASE_URL=http://127.0.0.1:8000/v1 just serve
+BIJOU_AGENT__LLM__BASE_URL=http://127.0.0.1:8000/v1 just chat
 ```
-
-The `engine` compose service sets it to `http://chat:8000/v1`.
 
 ## VRAM on a 6 GB GPU
 
@@ -45,6 +43,7 @@ raise `-c` only with headroom, and lower `-ngl` to spill layers to CPU.
 docker compose -f deploy/compose.yml --profile observe --profile gpu up -d
 ```
 
-Grafana at http://localhost:3000 (admin/admin) with the `Bijou inference` and `Bijou engine`
-dashboards; Prometheus at http://localhost:9090; Phoenix traces at http://localhost:6006.
-Prometheus scrapes both the host (`host.docker.internal`) and compose addresses.
+Grafana at http://localhost:3000 (admin/admin) with the `Bijou` dashboard (agent, skill bank,
+llama-server, GPU); Prometheus at http://localhost:9090; Phoenix traces at http://localhost:6006.
+Prometheus runs on the host network and scrapes loopback ports, whether a service runs on the
+host or in compose with its port published there.

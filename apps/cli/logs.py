@@ -56,8 +56,8 @@ class LogBuffer:
 
 
 def log_name(unit_id: str) -> str:
-    """The file name for one unit's log."""
-    return re.sub(r"[^A-Za-z0-9._-]+", "_", unit_id).strip("_") + ".log"
+    """The file name for one unit's log, short enough for any filesystem."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", unit_id).strip("_")[:120] + ".log"
 
 
 class LogWriter:

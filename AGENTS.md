@@ -19,14 +19,14 @@ just test [model|gpu] # tests; model insists on torch, gpu runs the GPU tests
 just fmt              # format in place
 just lock             # re-resolve uv.lock after changing any pyproject.toml
 
-just serve [--bank]   # the agent over HTTP with the skill bank in process; --bank the bank alone
+just chat             # talk to the agent; each message continues the last, /new starts over
 just agent "..."      # one request: plan, equip skills, act, answer
 just skills [cmd]     # list (default), sample, grade, train, propose, specs, new, collect
 just sessions [query] # sessions, newest first or matching; --show <id>
 just matrix [--train] # the composition matrix; --train trains everything first
 just runs [id]        # run records; an id prints one
 just config [table]   # the resolved configuration
-just evals [cmd]      # golden cases against just serve, gated on the baseline
+just evals [cmd]      # golden cases through engine run --json, gated on the baseline
 just console          # the developer console (TUI); alias: just cli
 just up [profiles]    # compose: observe (phoenix, prometheus, grafana), model (llama-server), gpu
 just down | logs      # stop the compose services, follow their logs
@@ -40,8 +40,8 @@ One repo, a uv workspace of three apps. Language is never a folder and neither i
 
 ```
 apps/engine     everything that runs: the diffusion model, its skill bank, the agent, collection,
-                the research matrix, the HTTP surface and the engine command
-apps/evals      golden cases against a serving engine, suites, baseline gate
+                the research matrix and the engine command
+apps/evals      golden cases through the engine command, suites, baseline gate
 apps/cli        the developer console
 third_party/    the nanoDiff submodule, pristine
 docs/           ROADMAP.md, ARCHITECTURE.md, decisions/
@@ -56,12 +56,12 @@ packages.
 
 ## The dependency rule
 
-Apps never import each other. evals reaches the engine over HTTP (`/run`); the console runs
-`just` recipes. Inside the engine a package imports one below it, never a sibling:
+Apps never import each other. evals runs `engine run --json` as a subprocess; the console runs
+`just` recipes and drives `engine chat --jsonl`. Inside the engine a package imports one below it,
+never a sibling:
 
 ```
 commands      the engine command
-api           HTTP: the agent, the skill bank
 wiring        builds everything
 agent | clients | tools | memory | collect
 runtime       train, evaluate, the matrix, the skill bank
@@ -86,13 +86,13 @@ All in `engine/core/protocols.py`. The diffusion model: `AdapterSite`, `Activati
 `TraceSink`, `SessionStore`, each with a double in `engine/core/doubles.py`. A new replaceable
 dependency gets a protocol and a double in the same change.
 
-`SkillRuntime` has two implementations in `engine/clients`: `LocalBank`, the bank in this
-process, and `RemoteBank`, a bank served by `engine serve --bank`. `agent.skills.mode` picks one.
+`SkillRuntime` has one implementation in `engine/clients`: `LocalBank`, the skill bank in the
+agent's own process, loaded on first use.
 
 ## Config
 
 One `bijou.toml`, committed, shared by every app; each reads only its own tables (the engine the
-unprefixed model tables plus `[serve]`, `[collect]` and `[agent.*]`, evals `[evals]`, the console
+unprefixed model tables plus `[bank]`, `[collect]` and `[agent.*]`, evals `[evals]`, the console
 `[console]`). `BIJOU_<TABLE>__<KEY>` from the environment wins. `BIJOU_CONFIG_FILE` points
 elsewhere.
 
@@ -104,7 +104,7 @@ change. Reject a bad combination at load rather than clamping it at use.
 
 - Lints are the law (`[tool.ruff.lint]`): no bare `print` outside commands, annotations on every
   function, imports sorted. `mypy --strict` covers the engine's `core`, `routing`, `skills`,
-  `agent`, `tools`, `memory`, the chat and remote bank clients, and evals. Fix at the source
+  `agent`, `tools`, `memory`, the chat client, and evals. Fix at the source
   rather than adding a `noqa`.
 - No global mutable state except `AdapterState`. Per-run state goes in `RequestContext`.
 - Every train, evaluate and collect run writes a `RunRecord`. A number that is not in a run

@@ -1,8 +1,8 @@
-"""The settings the console reads from engine.toml and BIJOU_* env vars.
+"""The settings the console reads from bijou.toml and BIJOU_* env vars.
 
 The console links nothing in the repo, so it models only the keys it reads: its own [console]
-table, and the paths, checkpoint, skills and service addresses the status bar reports. Every
-other table in the shared file belongs to another app and is ignored here.
+table, and the paths, checkpoint and skills the status bar reports. Every other table in the
+shared file belongs to another app and is ignored here.
 """
 
 from __future__ import annotations
@@ -43,20 +43,6 @@ class Eval(_Foreign):
     skills: tuple[str, ...] = ("json_extract",)
 
 
-class Serve(_Foreign):
-    host: str = "127.0.0.1"
-    port: int = 8100
-
-
-class AgentHttp(_Foreign):
-    host: str = "127.0.0.1"
-    port: int = 8200
-
-
-class Agent(_Foreign):
-    http: AgentHttp = Field(default_factory=AgentHttp)
-
-
 class Console(BaseModel):
     """The developer console. Every line a unit prints is also appended under log_dir."""
 
@@ -91,8 +77,6 @@ class Config(BaseSettings):
     paths: Paths = Field(default_factory=Paths)
     backend: Backend = Field(default_factory=Backend)
     eval: Eval = Field(default_factory=Eval)
-    serve: Serve = Field(default_factory=Serve)
-    agent: Agent = Field(default_factory=Agent)
 
     @classmethod
     def settings_customise_sources(

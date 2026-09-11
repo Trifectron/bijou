@@ -76,8 +76,8 @@ class SkillBank:
         gen_length = req.gen_length or sampling.gen_length
         steps = req.steps or sampling.steps
         block = min(sampling.block_length, gen_length)
-        if gen_length > self.cfg.serve.max_gen_length:
-            raise ConfigError(f"gen_length {gen_length} exceeds serve.max_gen_length")
+        if gen_length > self.cfg.bank.max_gen_length:
+            raise ConfigError(f"gen_length {gen_length} exceeds bank.max_gen_length")
         if gen_length % block or steps % (gen_length // block):
             raise ConfigError(
                 f"gen_length {gen_length} and steps {steps} do not split into blocks of {block}"

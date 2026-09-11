@@ -81,9 +81,9 @@ types:
 
 # ---------- the engine ----------
 
-# The engine over HTTP: the agent with the skill bank in process; --bank serves the bank alone
-serve *ARGS:
-    uv run engine serve {{ARGS}}
+# Talk to the agent; each message continues the conversation, /new starts over
+chat *ARGS:
+    uv run engine chat {{ARGS}}
 
 # One request: plan, equip skills, act, answer
 agent +REQUEST:
@@ -115,7 +115,7 @@ engine *ARGS:
 
 # ---------- the stack ----------
 
-# Start compose services by profile: observe (phoenix, prometheus, grafana), model (llama-server), gpu, engine
+# Start compose services by profile: observe (phoenix, prometheus, grafana), model (llama-server), gpu
 up +PROFILES="observe":
     docker compose -f deploy/compose.yml $(printf -- '--profile %s ' {{PROFILES}}) up -d
 
@@ -125,11 +125,11 @@ down:
 
 # Follow the logs of compose services, all of them by default
 logs *SERVICES:
-    docker compose -f deploy/compose.yml --profile '*' logs -f {{SERVICES}}
+    docker compose -f deploy/compose.yml --profile '*' logs -f --tail 200 {{SERVICES}}
 
 # ---------- evals ----------
 
-# Golden cases against just serve, gated on the baseline; also compare, baseline, cases
+# Golden cases, each through engine run --json, gated on the baseline; also compare, baseline, cases
 evals *ARGS="run":
     uv run evals {{ARGS}}
 
@@ -140,6 +140,14 @@ console:
     uv run console
 
 alias cli := console
+
+# The GPU in nvtop, full screen
+nvtop:
+    nvtop
+
+# Processes and CPU in htop, full screen
+htop:
+    htop
 
 # Build the engine image; TORCH=cpu builds one that runs without a GPU
 image TORCH="cuda":

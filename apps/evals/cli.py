@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
+import shlex
 from typing import Annotated
 
-import httpx
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -28,7 +28,8 @@ def _fail(exc: EvalsError) -> None:
 
 def _print(report: EvalReport) -> None:
     table = Table(
-        title=f"evals against {report.engine_url} at {report.git_sha}", title_justify="left"
+        title=f"evals against {shlex.join(report.engine_command)} at {report.git_sha}",
+        title_justify="left",
     )
     for column in ("suite", "passed", "rate"):
         table.add_column(column, justify="right" if column != "suite" else "left")
@@ -75,13 +76,13 @@ def run(
             if wanted & set(c.suites) and (not case or c.id in case)
         ]
         results: list[CaseResult] = []
-        with httpx.Client(base_url=cfg.engine_url, timeout=cfg.timeout_secs) as client:
-            for c in selected:
-                console.print(f"[dim]{c.id}[/dim] {c.request}")
-                results += reports.score(c, run_case(c, client), wanted)
+        for c in selected:
+            console.print(f"[dim]{c.id}[/dim] {c.request}")
+            view = run_case(c, cfg.engine_command, cfg.timeout_secs)
+            results += reports.score(c, view, wanted)
     except EvalsError as exc:
         _fail(exc)
-    report = reports.build(results, cfg.engine_url, len(selected))
+    report = reports.build(results, cfg.engine_command, len(selected))
     cfg.report_path.parent.mkdir(parents=True, exist_ok=True)
     cfg.report_path.write_text(report.model_dump_json(indent=2))
     _print(report)

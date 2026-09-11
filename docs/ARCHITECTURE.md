@@ -18,7 +18,7 @@ the bank.
 
 ```mermaid
 flowchart LR
-    U[User] -->|engine run / HTTP| E
+    U[User] -->|engine chat / run| E
     subgraph engine [apps/engine]
         E[agent<br/>planner · selector · subagents]
         K[skill bank<br/>base + every LoRA]
@@ -36,15 +36,15 @@ flowchart LR
     E -->|OpenAI-compatible| L[llama-server<br/>chat model]
     C -->|OpenAI-compatible| L
     E -->|MCP| M[MCP servers]
-    V[apps/evals] -->|POST /run| E
+    V[apps/evals] -->|engine run --json| E
     X[apps/cli] -->|just recipes| engine
 ```
 
 | App | Reaches the others by |
 |---|---|
 | `apps/engine` | nothing; it is what the others reach |
-| `apps/evals` | `POST /run` on `engine serve`; `apps/evals/core/types.py` holds the fields it reads |
-| `apps/cli` | `just` recipes in subprocesses, and the health routes |
+| `apps/evals` | `engine run --json` per case; `apps/evals/core/types.py` holds the fields it reads |
+| `apps/cli` | `just` recipes in subprocesses, and `engine chat --jsonl` for the chat pane |
 
 Apps never import each other. `import-linter` enforces it in `just check`.
 
@@ -52,7 +52,6 @@ Apps never import each other. `import-linter` enforces it in `just check`.
 
 ```
 commands                             the engine command
-api                                  HTTP: the agent, the skill bank
 wiring                               builds concrete implementations, opens MCP servers
 agent | clients | tools | memory | collect
 runtime                              train, evaluate, the composition matrix, the skill bank
@@ -92,8 +91,7 @@ through a `PhaseRouter` over the shared `AdapterState`, under a lock. A request 
 untrained skill, or a schedule boundary inside a sampler block, is refused with the reason.
 
 `clients` is the two models as the agent sees them: `OpenAIChat` for the LLM, and the skill bank
-as `LocalBank` (in process, loaded on first use, run off the event loop) or `RemoteBank` (a bank
-at `agent.skills.url`). `agent.skills.mode` picks one.
+as `LocalBank`, in the agent's own process, loaded on first use and run off the event loop.
 
 `memory` is what the agent remembers: the session index and the pattern miner that reads it.
 
@@ -101,18 +99,19 @@ at `agent.skills.url`). `agent.skills.mode` picks one.
 from a teacher LLM, deduplicated, shuffled by `collect.seed`, split once into files, recorded in a
 `RunRecord`. A spec that is not approved is refused.
 
-`api` serves the agent (`engine serve`) and the bank alone (`engine serve --bank`). `runtime`
-also holds the composition matrix, the research eval.
+`commands` is the engine command: `chat` holds a warm agent and takes turns over stdin, in the
+terminal or as JSON lines for the console; `run` does one request and exits. `runtime` also holds
+the composition matrix, the research eval.
 
 ## The agent
 
 | Protocol | Implementations | What it is |
 |---|---|---|
 | `ChatModel` | `clients.chat.OpenAIChat` | the LLM: plans, selects, drives each loop |
-| `SkillRuntime` | `clients.local_bank.LocalBank`, `clients.remote_bank.RemoteBank` | the skill bank |
+| `SkillRuntime` | `clients.local_bank.LocalBank` | the skill bank, in this process |
 | `Tool` | `tools.builtin`, `tools.mcp.McpTool`, `agent.toolset.SkillTool` | a capability |
 | `Policy` | `agent.policy.RiskPolicy` | allow, deny, or hold for the user |
-| `TraceSink` | `agent.trace.JsonlTrace`, `Collector`, `Fanout` | where events go |
+| `TraceSink` | `agent.trace.JsonlTrace`, `Collector`, `Fanout`, `commands.chat.LineSink` | where events go |
 | `SessionStore` | `memory.sessions.SqliteSessionStore` | the session index |
 
 Every protocol has a double in `core/doubles.py`, which is how every agent test runs whole
@@ -231,10 +230,10 @@ evals read.
 | What | Runs on | Started by |
 |---|---|---|
 | Chat model | llama-server, OpenAI-compatible, `--jinja --metrics` | the host, or `just up model` |
-| Diffusion model | the engine's own PyTorch sampler, in the engine process or `engine serve --bank` | `just serve` |
+| Diffusion model | the engine's own PyTorch sampler, in the agent's process | `just chat`, `just agent` |
 | Traces | Phoenix, OTLP over HTTP | `just up observe` |
-| Metrics | Prometheus, scraping the engine, the bank, llama-server and the GPU exporter | `just up observe` (`just up gpu` for the exporter) |
-| Dashboards | Grafana: Bijou engine, Bijou inference | `just up observe` |
+| Metrics | Prometheus, scraping `engine chat` (:9464), llama-server and the GPU exporter | `just up observe` (`just up gpu` for the exporter) |
+| Dashboards | Grafana: Bijou (agent, skill bank, llama-server, GPU) | `just up observe` |
 
 The diffusion model runs eager, one generation at a time under the bank's lock, with no prefix
 K/V cache, so a phase schedule can switch skills mid-generation.
@@ -243,10 +242,11 @@ K/V cache, so a phase schedule can switch skills mid-generation.
 knows it exists.
 
 - `MetricsSink` counts events into Prometheus metrics in a registry the running agent owns,
-  served at `/metrics` on `engine serve`: runs, steps, model calls by purpose, tokens, tool
-  calls and latency, policy decisions, skill picks. The skill bank records its own: generations
-  by skills and outcome, generation latency, lock wait, tokens, what it loaded. They are served
-  by whichever process holds the bank.
+  served at `telemetry.metrics_port` for as long as `engine chat` runs: runs, steps, model calls
+  by purpose, tokens, tool calls and latency, policy decisions, skill picks. The skill bank
+  records its own in the same registry: generations by skills and outcome, generation latency,
+  lock wait, tokens, what it loaded. A one-shot `engine run` serves nothing, and is counted
+  nowhere; its spans still reach Phoenix.
 - `OtelSink` builds OpenInference spans from the same events and exports them over OTLP when
   `BIJOU_TELEMETRY__OTLP_ENDPOINT` is set: `agent.run` (CHAIN, with `session.id`), a `step` per
   plan step (AGENT, with its skills), an `llm` span per model call (with the prompt, the reply
@@ -258,8 +258,8 @@ knows it exists.
 
 ## Evals
 
-`apps/evals` runs golden cases, `apps/evals/cases/*.jsonl`, against a serving engine and scores
-each on the suites it names: status, plan, skills, tools, answer, latency. A suite with nothing to
+`apps/evals` runs golden cases, `apps/evals/cases/*.jsonl`, each through `engine run --json`, and
+scores each on the suites it names: status, plan, skills, tools, answer, latency. A suite with nothing to
 check for a case does not count it. `evals baseline` promotes a report's pass counts to
 `apps/evals/baseline.json`; `evals compare` fails when a suite drops below it.
 
@@ -268,8 +268,11 @@ The composition matrix in the engine is the research eval. Agent evals say nothi
 ## Console
 
 `apps/cli` lists every `just` recipe, runs each in its own process group, streams its output, and
-shows GPUs, the checkpoint, trained artifacts, whether the engine answers, and the last run. It
-links nothing in the repo and reads only its own keys from `bijou.toml`.
+shows GPUs, the checkpoint, trained artifacts, which compose services are up, and the last run. It
+starts `engine chat --jsonl` with the console and talks to it over stdin: the conversation on the
+right, every trace event in the log pane beside it. An interactive unit (`nvtop`, `htop`) is handed
+the terminal while the console is suspended, and the others keep streaming. It links nothing in the
+repo and reads only its own keys from `bijou.toml`.
 
 ## Tech stack
 
@@ -280,7 +283,7 @@ links nothing in the repo and reads only its own keys from `bijou.toml`.
 | Base model | nanoDiff 150M SFT checkpoint, vendored as a submodule | `third_party/nanoDiff`, `[backend]` |
 | Model stack | PyTorch (CUDA or CPU build), tiktoken, NumPy | engine `train`, `cuda`, `cpu` extras |
 | Chat model | any OpenAI-compatible server; llama-server with Qwen3 by default | `[agent.llm]`, `[collect]` |
-| HTTP | FastAPI and uvicorn to serve, httpx to call | `engine/api`, `engine/clients` |
+| HTTP | httpx to call out; prometheus-client serves `/metrics` | `engine/clients`, `engine/telemetry` |
 | MCP | the official `mcp` SDK `Client` | `engine/tools/mcp.py` |
 | Sessions | SQLite with FTS5 | `engine/memory/sessions.py` |
 | Chat inference | llama.cpp `llama-server` (CUDA image in compose) | `deploy/compose.yml` profile `model` |

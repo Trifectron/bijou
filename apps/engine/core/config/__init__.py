@@ -5,7 +5,7 @@ environment, which wins. BIJOU_CONFIG_FILE points elsewhere. Every tunable value
 bijou.toml at its default; secrets and per-machine URLs live in .env. Contradictory combinations
 are rejected at load rather than clamped at use.
 
-  model  the diffusion model's tables, unprefixed, plus [serve] and [collect]
+  model  the diffusion model's tables, unprefixed, plus [bank] and [collect]
   agent  the [agent.*] tables
 
 A table another app owns, such as [evals] or [console], is ignored. Every table declared here
@@ -28,7 +28,6 @@ from pydantic_settings import (
 
 from engine.core.config.agent import (
     AgentConfig,
-    Http,
     Llm,
     Loop,
     Mcp,
@@ -38,20 +37,20 @@ from engine.core.config.agent import (
     Policy,
     Prompt,
     Sessions,
-    SkillServer,
+    Skills,
     Tools,
     Trace,
 )
 from engine.core.config.diffusion import (
     Adapter,
     Backend,
+    Bank,
     Collect,
     Condition,
     Eval,
     Paths,
     Prompting,
     Sampling,
-    Serve,
     Train,
 )
 from engine.core.types.errors import ConfigError
@@ -60,11 +59,11 @@ __all__ = [
     "Adapter",
     "AgentConfig",
     "Backend",
+    "Bank",
     "Collect",
     "Condition",
     "Config",
     "Eval",
-    "Http",
     "Llm",
     "Loop",
     "Mcp",
@@ -76,9 +75,8 @@ __all__ = [
     "Prompt",
     "Prompting",
     "Sampling",
-    "Serve",
     "Sessions",
-    "SkillServer",
+    "Skills",
     "Telemetry",
     "Tools",
     "Trace",
@@ -88,8 +86,9 @@ __all__ = [
 
 
 class Telemetry(BaseModel):
-    """Spans over OTLP, read by Phoenix. otlp_endpoint is per-machine and lives in .env as
-    BIJOU_TELEMETRY__OTLP_ENDPOINT; empty sends no spans. Prometheus metrics are always served."""
+    """Spans over OTLP, read by Phoenix, and Prometheus metrics. otlp_endpoint is per-machine and
+    lives in .env as BIJOU_TELEMETRY__OTLP_ENDPOINT; empty sends no spans. engine chat serves the
+    metrics at metrics_host:metrics_port while it runs; port 0 serves none."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -97,6 +96,8 @@ class Telemetry(BaseModel):
     service_name: str = "bijou-engine"
     sample_ratio: float = 1.0
     export_timeout_secs: float = 10.0
+    metrics_host: str = "127.0.0.1"
+    metrics_port: int = 9464
 
     @model_validator(mode="after")
     def _check(self) -> Telemetry:
@@ -104,6 +105,8 @@ class Telemetry(BaseModel):
             raise ConfigError("telemetry.sample_ratio must lie in [0, 1]")
         if self.export_timeout_secs <= 0:
             raise ConfigError("telemetry.export_timeout_secs must be positive")
+        if not 0 <= self.metrics_port < 65536:
+            raise ConfigError("telemetry.metrics_port must be a TCP port, or 0 for none")
         return self
 
 
@@ -129,7 +132,7 @@ class Config(BaseSettings):
     sampling: Sampling = Field(default_factory=Sampling)
     eval: Eval = Field(default_factory=Eval)
     prompting: Prompting = Field(default_factory=Prompting)
-    serve: Serve = Field(default_factory=Serve)
+    bank: Bank = Field(default_factory=Bank)
     collect: Collect = Field(default_factory=Collect)
     agent: AgentConfig = Field(default_factory=AgentConfig)
     telemetry: Telemetry = Field(default_factory=Telemetry)

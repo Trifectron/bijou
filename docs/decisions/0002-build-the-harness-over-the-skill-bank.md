@@ -54,3 +54,6 @@ One package is larger; the layer contracts are what keep it from becoming one ta
 If phase routing is indistinguishable from static application (roadmap step 3), the skill bank
 can be replaced by an autoregressive LoRA server behind the same `SkillRuntime` protocol. The
 agent does not change.
+
+`0003` narrows the ways in that this record assumed: the agent is reached in a terminal, and the
+skill bank always runs in the agent's process rather than optionally over HTTP.

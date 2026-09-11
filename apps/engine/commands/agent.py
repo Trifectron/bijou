@@ -1,4 +1,4 @@
-"""Commands for the agent: run a request, confirm an action, serve, and look through sessions."""
+"""Commands for the agent: run a request, confirm an action, and look through sessions."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ def _status(status: RunStatus) -> str:
     return f"[{style}]{status.value}[/{style}]"
 
 
-def _show(result: RunResult) -> None:
+def show_result(result: RunResult) -> None:
     plan = result.plan
     title = f"session {result.session_id}"
     if plan.fallback:
@@ -62,18 +62,21 @@ def run(
         str | None, typer.Option("--resume", help="Continue from an earlier session.")
     ] = None,
     as_json: Annotated[bool, typer.Option("--json", help="Print the result as JSON.")] = False,
+    user: Annotated[
+        str, typer.Option("--user", help="Who is asking; the session and its trace carry it.")
+    ] = "local",
 ) -> None:
     """Plan, equip skills, act and answer. Asks before any action that needs confirmation."""
     cfg = settings()
 
     async def go() -> None:
         async with open_agent(cfg) as agent:
-            result = await agent.orchestrator.run(request, resume)
+            result = await agent.orchestrator.run(request, resume, user)
             while True:
                 if as_json:
                     typer.echo(result.model_dump_json(indent=2))
                 else:
-                    _show(result)
+                    show_result(result)
                 pending = result.confirmation
                 if pending is None or as_json:
                     return
@@ -100,33 +103,9 @@ def confirm(
             return await agent.orchestrator.confirm(session_id, token, not deny)
 
     try:
-        _show(asyncio.run(go()))
+        show_result(asyncio.run(go()))
     except EngineError as exc:
         fail(exc)
-
-
-@app.command()
-def serve(
-    bank: Annotated[
-        bool,
-        typer.Option("--bank", help="Serve only the skill bank, for an agent on another machine."),
-    ] = False,
-) -> None:
-    """Serve the agent over HTTP on agent.http, or with --bank the skill bank on serve.port."""
-    import uvicorn
-
-    cfg = settings()
-    if bank:
-        from engine.api.bank import serve as serve_bank
-
-        try:
-            serve_bank(cfg)
-        except EngineError as exc:
-            fail(exc)
-        return
-    from engine.api.agent import create_app
-
-    uvicorn.run(create_app(cfg), host=cfg.agent.http.host, port=cfg.agent.http.port)
 
 
 @app.command()

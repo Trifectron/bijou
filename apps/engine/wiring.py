@@ -22,7 +22,6 @@ from engine.agent.toolset import ToolSet
 from engine.agent.trace import Collector, Fanout, JsonlTrace
 from engine.clients.chat import OpenAIChat
 from engine.clients.local_bank import LocalBank
-from engine.clients.remote_bank import RemoteBank
 from engine.core.config import AgentConfig, Config
 from engine.core.protocols import ChatModel, SessionStore, SkillRuntime, Tool, TraceSink
 from engine.memory.patterns import PatternMiner
@@ -88,30 +87,24 @@ def build(
     )
 
 
-def skill_runtime(cfg: Config, registry: CollectorRegistry) -> LocalBank | RemoteBank:
-    """The skill bank in this process, or the one at agent.skills.url, by agent.skills.mode."""
-    if cfg.agent.skills.mode == "local":
-        return LocalBank(cfg, metrics=BankMetrics(registry))
-    return RemoteBank(cfg.agent.skills)
-
-
 @asynccontextmanager
-async def open_agent(cfg: Config) -> AsyncIterator[Agent]:
-    """The real agent: the chat model, the skill bank, SQLite, tools, MCP servers, telemetry."""
+async def open_agent(cfg: Config, sinks: Sequence[TraceSink] = ()) -> AsyncIterator[Agent]:
+    """The real agent: the chat model, the skill bank in this process, SQLite, tools, MCP servers,
+    telemetry. sinks see every trace event too, which is how engine chat streams a run."""
     agent_cfg = cfg.agent
     registry = new_registry()
     async with AsyncExitStack() as stack:
-        sinks: list[TraceSink] = []
+        every: list[TraceSink] = list(sinks)
         tracer = open_tracer(cfg.telemetry)
         if tracer is not None:
             sink, shutdown = tracer
-            sinks.append(sink)
+            every.append(sink)
             stack.callback(shutdown)
         sessions = SqliteSessionStore(agent_cfg.sessions.path)
         stack.callback(sessions.close)
         model = OpenAIChat(agent_cfg.llm)
         stack.push_async_callback(model.aclose)
-        runtime = skill_runtime(cfg, registry)
+        runtime = LocalBank(cfg, metrics=BankMetrics(registry))
         stack.push_async_callback(runtime.aclose)
         tools: list[Tool] = list(builtin_tools(agent_cfg.tools, sessions))
         for server in agent_cfg.mcp.servers:
@@ -124,6 +117,6 @@ async def open_agent(cfg: Config) -> AsyncIterator[Agent]:
             runtime=runtime,
             sessions=sessions,
             tools=tools,
-            sinks=sinks,
+            sinks=every,
             registry=registry,
         )

@@ -38,7 +38,7 @@ def score(case: EvalCase, run: RunView, wanted: set[str]) -> list[CaseResult]:
     return results
 
 
-def build(results: list[CaseResult], engine_url: str, cases: int) -> EvalReport:
+def build(results: list[CaseResult], engine_command: list[str], cases: int) -> EvalReport:
     reports = []
     for name in suites.NAMES:
         mine = [r for r in results if r.suite == name]
@@ -47,7 +47,7 @@ def build(results: list[CaseResult], engine_url: str, cases: int) -> EvalReport:
                 SuiteReport(suite=name, passed=sum(r.score.passed for r in mine), total=len(mine))
             )
     return EvalReport(
-        engine_url=engine_url,
+        engine_command=engine_command,
         git_sha=git_sha(),
         started_at=datetime.now(UTC).isoformat(),
         cases=cases,

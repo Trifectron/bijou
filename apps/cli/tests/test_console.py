@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import re
 from datetime import datetime
 from pathlib import Path
 
 import pytest
 
+from cli.chat import Transcript, Turn, decode
 from cli.core.config import Config
 from cli.logs import LogBuffer, LogLine, LogWriter, log_name
 from cli.runner import Runner
 from cli.status import Snapshot, last_run, parse_gpus, parse_holders
-from cli.units import Command, Group, Unit, catalog, parse_command
+from cli.units import Command, Group, Kind, Unit, catalog, parse_command
 
 ROOT = Path(__file__).resolve().parents[3]
 KNOWN = ("json_extract",)
@@ -44,6 +46,13 @@ def test_every_skill_has_a_train_unit():
 def test_catalog_ids_are_unique():
     ids = [u.id for u in catalog(KNOWN)]
     assert len(ids) == len(set(ids))
+
+
+def test_the_catalog_has_one_agent_and_follows_services_by_name():
+    units = catalog(KNOWN)
+    assert [u.name for u in units if u.kind is Kind.AGENT] == ["agent"]
+    follow = {u.service: u.id for u in units if u.kind is Kind.FOLLOW}
+    assert follow["chat"] == "logs chat" and "phoenix" in follow
 
 
 @pytest.mark.parametrize(
@@ -96,6 +105,8 @@ def test_log_files_are_named_by_unit_and_appended(tmp_path):
     name = log_name("skill train json_extract --full-finetune")
     assert name == "skill_train_json_extract_--full-finetune.log"
     assert (tmp_path / name).read_text().endswith("out hello\n")
+    # A unit typed at the command line, or a script, can be far longer than a file name may be.
+    assert len(log_name("x" * 500)) == 124
 
 
 def test_nvidia_smi_output_parses():
@@ -123,11 +134,48 @@ def test_the_newest_run_record_is_the_last_run(tmp_path):
 
 def test_the_console_reads_only_its_keys_from_the_shared_file(tmp_path, monkeypatch):
     path = tmp_path / "bijou.toml"
-    path.write_text("[console]\nlog_lines = 7\n[agent.http]\nport = 9999\n[train]\nlr = 0.1\n")
+    path.write_text("[console]\nlog_lines = 7\n[backend]\ncheckpoint = 'c'\n[train]\nlr = 0.1\n")
     monkeypatch.setenv("BIJOU_CONFIG_FILE", str(path))
     cfg = Config()
     assert cfg.console.log_lines == 7
-    assert cfg.agent.http.port == 9999
+    assert cfg.backend.checkpoint == "c"
+
+
+def test_the_agent_lines_become_turns_and_log_lines():
+    t = Transcript()
+    assert decode("plain text") is None and decode('{"no": "type"}') is None
+    assert t.apply({"type": "ready", "metrics": "http://m/metrics"}) == (
+        "ready, metrics at http://m/metrics"
+    )
+    t.ask("hi")
+    event = {"kind": "tool_call", "step_id": "1", "data": {"tool": "fetch", "arguments": {}}}
+    assert t.apply({"type": "event", "event": event}) == "tool_call [1] tool=fetch"
+    assert t.waiting and t.activity == "tool call"
+    result = {
+        "session_id": "s9",
+        "status": "answered",
+        "answer": "hello",
+        "steps": [{}, {}],
+        "usage": {"prompt_tokens": 3, "completion_tokens": 4},
+        "duration_ms": 2500,
+    }
+    t.apply({"type": "result", "result": result})
+    assert not t.waiting and t.session == "s9"
+    assert t.turns[-1] == Turn("agent", "hello", "answered · 2 steps · 7 tokens · 2.5s")
+    held = result | {"answer": "", "confirmation": {"tool": "post", "summary": "post it"}}
+    t.apply({"type": "result", "result": held})
+    assert t.pending == "post: post it" and t.turns[-1].text == "waiting for your approval"
+    t.confirming(approve=True)
+    assert t.pending is None and t.waiting
+    # A result that holds nothing clears a held action, however the run reached it.
+    t.pending = "post: post it"
+    t.apply({"type": "result", "result": result})
+    assert t.pending is None
+    t.session = "s9"
+    t.restarted()
+    assert t.session is None and not t.ready and t.turns[-1].role == "note"
+    t.apply({"type": "error", "message": "nope"})
+    assert t.turns[-1] == Turn("note", "nope") and not t.waiting
 
 
 def _collect(tmp_path, script: str, stop_after: float | None = None):
@@ -270,7 +318,7 @@ def test_the_command_line_and_search(cfg, tmp_path):
             await pilot.press("colon", "c", "l", "e", "a", "r", "enter")
             assert len(app.states[0].logs) == 0
 
-            await pilot.press("tab")
+            await pilot.press("h")
             assert app.pane is Pane.UNITS
             await pilot.press("question_mark")
             assert app.show_help
@@ -279,6 +327,122 @@ def test_the_command_line_and_search(cfg, tmp_path):
             assert app.selected == 0
 
     asyncio.run(scenario())
+
+
+def _monitor(cfg, tmp_path, script: str):
+    from cli.app import ConsoleApp
+
+    unit = Unit(Group.MONITOR, (script,), "hint", Kind.INTERACTIVE)
+    return ConsoleApp(cfg, tmp_path, units=[unit], launcher=("sh", "-c"), probe=_snapshot)
+
+
+def test_an_interactive_unit_needs_a_terminal_to_take_over(cfg, tmp_path):
+    pytest.importorskip("textual")
+    from cli.app import Status
+
+    async def scenario() -> None:
+        app = _monitor(cfg, tmp_path, "exit 0")
+        # The headless test driver cannot suspend, which is what a pipe or Textual Web gives too.
+        async with app.run_test() as pilot:
+            await pilot.press("enter")
+            assert "terminal" in app.notice
+            assert app.states[0].status is Status.IDLE
+            assert not app._handed_over
+
+    asyncio.run(scenario())
+
+
+def test_an_interactive_unit_takes_the_terminal_and_reports_its_exit(cfg, tmp_path):
+    pytest.importorskip("textual")
+    from cli.app import Status
+
+    async def scenario() -> None:
+        app = _monitor(cfg, tmp_path, "exit 3")
+        app.suspend = contextlib.nullcontext
+        async with app.run_test() as pilot:
+            await pilot.press("enter")
+            assert app.states[0].status is Status.FAILED
+            assert app.states[0].code == 3
+            assert not app.runner.owns("exit 3")
+            assert not app._handed_over
+
+    asyncio.run(scenario())
+
+
+# Speaks the engine chat --jsonl protocol: an answer, or a held action and then its outcome.
+FAKE_AGENT = """
+answer='{"type":"result","result":{"session_id":"s1","status":"answered","answer":"63",
+"steps":[{}],"usage":{"prompt_tokens":5,"completion_tokens":2},"duration_ms":1200}}'
+held='{"type":"result","result":{"session_id":"s1","status":"awaiting_confirmation",
+"answer":"","steps":[],"usage":{},"duration_ms":10,"confirmation":{"tool":"post","summary":"x"}}}'
+posted='{"type":"result","result":{"session_id":"s1","status":"answered","answer":"posted",
+"steps":[],"usage":{},"duration_ms":10}}'
+event='{"type":"event","event":{"kind":"planned","session_id":"s1","step_id":"","data":{}}}'
+echo '{"type":"ready","metrics":null}'
+while read -r line; do
+  case "$line" in
+    *confirm*) echo $posted ;;
+    *post*) echo $event; echo $held ;;
+    *) echo $event; echo $answer ;;
+  esac
+done
+"""
+
+
+def test_the_agent_starts_with_the_console_and_answers_in_the_chat(cfg, tmp_path):
+    pytest.importorskip("textual")
+    from cli.app import ConsoleApp, Mode
+
+    async def scenario() -> None:
+        unit = Unit(Group.SERVICES, (FAKE_AGENT,), "hint", Kind.AGENT, "agent")
+        app = ConsoleApp(cfg, tmp_path, units=[unit], launcher=("sh", "-c"), probe=_snapshot)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await _until(pilot, lambda: app.transcript.ready)
+            await pilot.press("i", *"hello", "enter")
+            assert app.key_mode is Mode.CHAT
+            await _until(pilot, lambda: not app.transcript.waiting)
+            assert [(t.role, t.text) for t in app.transcript.turns] == [
+                ("you", "hello"),
+                ("agent", "63"),
+            ]
+            assert "1 step" in app.transcript.turns[-1].meta
+            assert "planned" in [line.text for line in app.states[0].logs.window(0, 50)]
+
+            await pilot.press(*"post", "enter")
+            await _until(pilot, lambda: app.transcript.pending is not None)
+
+            # A held action is answered before anything else is asked.
+            await pilot.press(*"more", "enter")
+            assert "holding an action" in app.notice
+            assert app.transcript.pending is not None and app.draft == "more"
+
+            await pilot.press("ctrl+u", "escape", "a")
+            await _until(pilot, lambda: app.transcript.turns[-1].text == "posted")
+            assert app.transcript.pending is None
+
+    asyncio.run(scenario())
+
+
+def test_the_chat_says_so_when_the_agent_is_not_running(cfg, tmp_path):
+    pytest.importorskip("textual")
+
+    async def scenario() -> None:
+        unit = Unit(Group.SERVICES, ("exit 1",), "hint", Kind.AGENT, "agent")
+        app = chat_app(cfg, tmp_path, unit)
+        async with app.run_test() as pilot:
+            await _until(pilot, lambda: not app.runner.owns("exit 1"))
+            await pilot.press("i", *"hi", "enter")
+            assert "not ready" in app.notice
+            assert app.draft == "hi"
+            assert app.transcript.turns[-1].role == "note"
+
+    asyncio.run(scenario())
+
+
+def chat_app(cfg, tmp_path, *units):
+    from cli.app import ConsoleApp
+
+    return ConsoleApp(cfg, tmp_path, units=list(units), launcher=("sh", "-c"), probe=_snapshot)
 
 
 def test_an_unknown_command_runs_as_an_adhoc_recipe(cfg, tmp_path):

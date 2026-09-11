@@ -1,7 +1,7 @@
 """Cases, the part of a engine result the suites read, scores and reports.
 
 RunView is evals' own copy of the engine RunResult, holding only the fields a suite reads. The
-engine HTTP surface is the contract; evals never imports the engine.
+JSON that engine run --json prints is the contract; evals never imports the engine.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class EvalsError(Exception):
-    """A case file is malformed, the engine cannot be reached, or a report is missing."""
+    """A case file is malformed, the engine run fails, or a report is missing."""
 
 
 class Expect(BaseModel):
@@ -99,7 +99,7 @@ class SuiteReport(BaseModel):
 class EvalReport(BaseModel):
     """One eval run. Written to evals.report_path; the baseline is promoted from one."""
 
-    engine_url: str
+    engine_command: list[str]
     git_sha: str
     started_at: str
     cases: int

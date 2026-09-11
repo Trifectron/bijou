@@ -48,7 +48,7 @@ Then, with a chat model on an OpenAI-compatible endpoint (llama-server by defaul
 just setup cuda && just checkpoints      # torch and the base model, on a GPU box
 just skills train json_extract           # one skill in the bank
 just agent "Turn this into JSON: Ana has worked as an engineer in Tempe for 7 years."
-just serve                               # the engine over HTTP, for clients and evals
+just chat                                # talk to it; each message continues the last
 ```
 
 `deploy/README.md` covers the services and the image.
@@ -59,8 +59,8 @@ One uv workspace, three apps that never import each other.
 
 | App | What it is |
 |---|---|
-| `apps/engine` | everything that runs: adapters, phase routing, skills, training, the skill bank, the agent (planner, selector, subagents, policy, tools, MCP, sessions, pattern miner), collection, the research matrix, the HTTP surface and the `engine` command |
-| `apps/evals` | golden cases against a serving engine, scored by suite, gated on a baseline |
+| `apps/engine` | everything that runs: adapters, phase routing, skills, training, the skill bank, the agent (planner, selector, subagents, policy, tools, MCP, sessions, pattern miner), collection, the research matrix and the `engine` command |
+| `apps/evals` | golden cases through the `engine` command, scored by suite, gated on a baseline |
 | `apps/cli` | a terminal UI over every `just` recipe, with GPU and service status |
 
 `docs/ARCHITECTURE.md` has the layers inside the engine, the request lifecycle, the loop, the risk
@@ -71,7 +71,7 @@ classes, and the invariants.
 ```
 engine run "..." [--resume ID]     plan, equip, act, answer; asks before consequential actions
 engine confirm SESSION TOKEN       approve (or --deny) a waiting action
-engine serve [--bank]              the agent over HTTP; --bank serves the skill bank alone
+engine chat [--jsonl]              talk to the agent, turn after turn; --jsonl is for the console
 engine sessions [QUERY] [--show]   the session index
 engine skills list|sample|grade|train|propose|specs|new|collect
 engine matrix [--train]            the composition matrix
@@ -87,10 +87,15 @@ evals run|compare|baseline|cases   agent evals; run compares against the baselin
 just console          # or: just cli
 ```
 
-Units on the left, the selected unit's output on the right; `j`/`k` move, `enter` starts or stops,
-`:` runs any recipe, `/` searches, `?` for help. The status bar shows GPU memory and its holders,
-the base checkpoint, trained skills, whether the engine answers, the last run, and the git SHA.
-Every line is mirrored to `.bijou/logs/<unit>.log`.
+Units on the left, the selected unit's output in the middle, the chat with the agent on the right.
+The agent starts with the console, and the logs of every compose service that is up are followed
+from the start. `i` types to the agent and `enter` sends; while it works its plan, skill picks,
+model and tool calls stream into the middle pane. `a` and `d` approve or deny an action it is
+holding, `R` starts a new conversation. `j`/`k` move, `enter` starts or stops a unit, `h`/`l`
+change pane, `:` runs any recipe, `/` searches, `?` for help. The status bar shows the agent, the
+services, GPU memory and its holders, the base checkpoint, trained skills, the last run and the
+git SHA. Every line is mirrored to `.bijou/logs/<unit>.log`. The `monitor` units, `nvtop` and
+`htop`, take the whole terminal; quit them to come back, with everything else still running.
 
 ## Observability
 
@@ -101,9 +106,9 @@ just up model         # llama-server :8000, if the chat model is not already run
 
 Set `BIJOU_TELEMETRY__OTLP_ENDPOINT=http://127.0.0.1:6006/v1/traces` in `.env` and every run
 shows in Phoenix as a span tree: the run, each step with the skills it equipped, every model call
-with its prompt and reply, every tool call. `engine serve` and `engine serve --bank` serve
-Prometheus metrics at `/metrics`; Grafana has an engine dashboard and an inference dashboard for
-llama-server and the GPU.
+with its prompt and reply, every tool call. `engine chat` serves Prometheus metrics at
+`telemetry.metrics_port` (9464) for as long as it runs; Grafana's `Bijou` dashboard covers the
+agent, the skill bank, llama-server and the GPU.
 
 ## Safety
 

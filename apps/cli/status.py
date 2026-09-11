@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-import urllib.error
-import urllib.request
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePath
 
@@ -35,7 +33,8 @@ class Snapshot:
     skills: int
     last_run: str
     git: str
-    services: tuple[tuple[str, bool], ...] = ()
+    # The compose services that are up, by name.
+    running: frozenset[str] = frozenset()
 
 
 def parse_gpus(csv: str) -> list[Gpu]:
@@ -111,24 +110,29 @@ def last_run(runs: Path) -> str:
     return f"{newest[1]} {newest[0][5:16].replace('T', ' ')}"
 
 
-def up(url: str, timeout: float = 0.5) -> bool:
-    """Whether a service answers its health route."""
+def compose_running(compose: Path = Path("deploy/compose.yml")) -> frozenset[str]:
+    """The compose services that are up, by name. Empty when docker is absent or fails."""
+    if shutil.which("docker") is None or not compose.exists():
+        return frozenset()
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310 - loopback URL from config
-            return bool(response.status == 200)
-    except (urllib.error.URLError, OSError, ValueError):
-        return False
+        out = subprocess.run(
+            ["docker", "compose", "-f", str(compose), "--profile", "*", "ps", "--services"]
+            + ["--status", "running"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        ).stdout
+    except (subprocess.SubprocessError, OSError):
+        return frozenset()
+    return frozenset(line.strip() for line in out.splitlines() if line.strip())
 
 
 def snapshot(cfg: Config) -> Snapshot:
-    """The status bar's view of the repo, read from disk, nvidia-smi and the health routes."""
+    """The status bar's view of the repo, read from disk, nvidia-smi and docker compose."""
     skills = cfg.eval.skills
     checkpoint = cfg.backend.checkpoint
     present = bool(checkpoint) and (cfg.paths.base_checkpoints / f"{checkpoint}.pt").exists()
-    services = (
-        ("serve", up(f"http://{cfg.serve.host}:{cfg.serve.port}/health")),
-        ("engine", up(f"http://{cfg.agent.http.host}:{cfg.agent.http.port}/health")),
-    )
     return Snapshot(
         gpus=gpus(),
         checkpoint=checkpoint,
@@ -138,5 +142,5 @@ def snapshot(cfg: Config) -> Snapshot:
         skills=len(skills),
         last_run=last_run(cfg.paths.runs),
         git=git_sha(),
-        services=services,
+        running=compose_running(),
     )

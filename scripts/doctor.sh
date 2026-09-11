@@ -47,7 +47,10 @@ probe() {
 llm=$(uv run --no-sync python -c \
   "from engine.core.config import load; print(load().agent.llm.base_url)" 2>/dev/null)
 [ -n "$llm" ] && probe "chat" "${llm%/}/models" "start llama-server, or set BIJOU_AGENT__LLM__BASE_URL"
-probe "engine" "http://127.0.0.1:8200/health" "run: just serve"
+metrics=$(uv run --no-sync python -c \
+  "from engine.core.config import load; t = load().telemetry; \
+print(f'http://{t.metrics_host}:{t.metrics_port}/metrics' if t.metrics_port else '')" 2>/dev/null)
+[ -n "$metrics" ] && probe "agent" "$metrics" "run: just chat, or just console"
 probe "phoenix" "http://127.0.0.1:6006/" "run: just up observe"
 probe "prom" "http://127.0.0.1:9090/-/ready" "run: just up observe"
 probe "grafana" "http://127.0.0.1:3000/api/health" "run: just up observe"

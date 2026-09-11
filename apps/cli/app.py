@@ -1,13 +1,16 @@
 """The console application.
 
-Units are listed on the left and the selected unit's output on the right. Keys
-follow vim: j and k move, enter starts or stops, colon opens the command line,
-slash searches. q stops every running unit and quits.
+Units on the left, the selected unit's output in the middle, the chat with the agent on the
+right. The agent starts with the console, and the logs of every compose service that is up are
+followed from the start; tasks run when asked. Keys follow vim: j and k move, enter starts or
+stops, i types to the agent, colon opens the command line, slash searches. q stops every unit
+and quits.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import time
 from collections.abc import Callable, Sequence
@@ -15,18 +18,20 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 from rich.text import Text
 from textual import events
-from textual.app import App, ComposeResult
-from textual.containers import Horizontal
+from textual.app import App, ComposeResult, SuspendNotSupported
+from textual.containers import Horizontal, Vertical
 from textual.widgets import Static
 
+from cli.chat import Transcript, decode
 from cli.core.config import Config, ConfigError
 from cli.logs import LogBuffer, LogLine, LogWriter, Stream
 from cli.runner import Runner
 from cli.status import Snapshot, snapshot
-from cli.units import Command, Unit, adhoc, catalog, parse_command
+from cli.units import Command, Kind, Unit, adhoc, catalog, parse_command
 
 
 class Status(StrEnum):
@@ -45,14 +50,18 @@ class Mode(StrEnum):
     NORMAL = "NORMAL"
     COMMAND = "COMMAND"
     SEARCH = "SEARCH"
+    CHAT = "CHAT"
 
 
 class Pane(StrEnum):
-    """Which side the movement keys act on."""
+    """Which pane the movement keys act on, left to right."""
 
     UNITS = "units"
     LOGS = "logs"
+    CHAT = "chat"
 
+
+PANES = list(Pane)
 
 GLYPHS = {
     Status.IDLE: ("○", "dim"),
@@ -64,15 +73,22 @@ GLYPHS = {
 
 STREAM_STYLES: dict[Stream, str] = {"out": "", "err": "", "meta": "cyan"}
 
+SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
 HINTS = (
-    "j/k move  ⏎ start/stop  x stop  r restart  h/l units/logs  / search  : command  ? help  q quit"
+    "i chat  j/k move  ⏎ start/stop  x stop  r restart  h/l panes  / search  : command  "
+    "? help  q quit"
 )
 
 HELP = """keys
+  i                          type to the agent; enter sends, esc leaves
+  a  d                       approve or deny the action the agent is waiting on
+  R                          start a new conversation
   j k  gg G  ctrl+d ctrl+u   move, or scroll the focused pane; G on logs resumes following
   enter  s                   start or stop the selected unit
+                             a monitor unit takes the terminal until you quit it
   x  r                       stop, restart
-  h  l  tab                  focus units, logs
+  h  l  tab                  focus units, logs, chat
   /  then n  N               search the selected unit's logs
   C                          clear the selected unit's logs
   :                          command line
@@ -81,8 +97,9 @@ HELP = """keys
 
 commands
   :start <unit>  :stop <unit>  :restart <unit>  :clear  :help  :q
-  anything else runs as a just recipe, e.g. :skill sample json_extract -n 2
+  anything else runs as a just recipe, e.g. :skills train json_extract
 
+the agent starts with the console, and each compose service that is up has its logs followed.
 every line a unit prints is also appended to {log_dir}/<unit>.log
 """
 
@@ -124,9 +141,12 @@ class ConsoleApp(App[None]):
     Screen { layout: vertical; }
     #status, #footer { height: 1; padding: 0 1; }
     #body { height: 1fr; }
-    #units { width: 46; height: 100%; border: round grey; }
+    #units { width: 34; height: 100%; border: round grey; }
     #logs { width: 1fr; height: 100%; border: round grey; }
-    #units.focused, #logs.focused { border: round $accent; }
+    #chat { width: 1fr; height: 100%; }
+    #transcript { height: 1fr; border: round grey; padding: 0 1; }
+    #ask { height: 3; border: round grey; padding: 0 1; }
+    #units.focused, #logs.focused, #transcript.focused, #ask.focused { border: round $accent; }
     """
 
     def __init__(
@@ -142,10 +162,14 @@ class ConsoleApp(App[None]):
         self.root = root
         chosen = catalog(cfg.eval.skills) if units is None else list(units)
         self.states = [UnitState(u, LogBuffer(cfg.console.log_lines)) for u in chosen]
+        self.agent = next((s for s in self.states if s.unit.kind is Kind.AGENT), None)
+        self.transcript = Transcript()
         self.selected = 0
         self.pane = Pane.UNITS
         self.key_mode = Mode.NORMAL
         self.typed = ""
+        self.draft = ""
+        self.chat_scroll = 0
         self.search = ""
         self.hit: int | None = None
         self.notice = ""
@@ -156,7 +180,9 @@ class ConsoleApp(App[None]):
         self.writer = LogWriter(root / cfg.console.log_dir)
         self.runner = Runner(root, self._on_line, self._on_exit, launcher)
         self._pending: set[asyncio.Task[None]] = set()
+        self._running_services: frozenset[str] = frozenset()
         self._dirty = True
+        self._handed_over = False
 
     # ---------- layout and lifecycle ----------
 
@@ -165,6 +191,9 @@ class ConsoleApp(App[None]):
         with Horizontal(id="body"):
             yield Static(id="units")
             yield Static(id="logs")
+            with Vertical(id="chat"):
+                yield Static(id="transcript")
+                yield Static(id="ask")
         yield Static(id="footer")
 
     async def on_mount(self) -> None:
@@ -172,6 +201,8 @@ class ConsoleApp(App[None]):
         self.set_interval(1.0, self._touch)
         self.set_interval(self.cfg.console.status_interval_secs, self._poll)
         self.run_worker(self._poll(), exclusive=True, group="status")
+        if self.agent is not None:
+            await self._start(self.agent)
         self._paint()
 
     def on_resize(self) -> None:
@@ -183,13 +214,26 @@ class ConsoleApp(App[None]):
 
     async def _poll(self) -> None:
         self.snap = await asyncio.to_thread(self.probe, self.cfg)
+        await self._follow(self.snap.running)
         self._dirty = True
+
+    async def _follow(self, running: frozenset[str]) -> None:
+        """Follow the logs of every service that has come up since the last look. A service
+        followed and then stopped by hand stays stopped until it comes up again."""
+        came_up = running - self._running_services
+        self._running_services = running
+        for tracked in self.states:
+            unit = tracked.unit
+            followable = unit.kind is Kind.FOLLOW and unit.service in came_up
+            if followable and not self.runner.owns(unit.id):
+                await self._start(tracked)
 
     def _touch(self) -> None:
         self._dirty = True
 
     def _refresh_if_dirty(self) -> None:
-        if self._dirty:
+        # The spinner turns while the agent works.
+        if (self._dirty or self.transcript.waiting) and not self._handed_over:
             self._dirty = False
             self._paint()
 
@@ -204,8 +248,16 @@ class ConsoleApp(App[None]):
     # ---------- runner callbacks ----------
 
     def _on_line(self, unit_id: str, stream: Stream, text: str) -> None:
-        line = LogLine(datetime.now(), stream, text)
         tracked = self.state(unit_id)
+        if tracked is not None and tracked.unit.kind is Kind.AGENT and stream == "out":
+            message = decode(text)
+            if message is not None:
+                self._dirty = True
+                logged = self.transcript.apply(message)
+                if logged is None:
+                    return
+                text = logged
+        line = LogLine(datetime.now(), stream, text)
         if tracked is not None:
             tracked.logs.append(line)
         self.writer.append(unit_id, line)
@@ -223,6 +275,8 @@ class ConsoleApp(App[None]):
         else:
             tracked.status = Status.IDLE if stopped else Status.FAILED
         self._on_line(unit_id, "meta", "stopped" if stopped else f"exited with code {code}")
+        if tracked.unit.kind is Kind.AGENT:
+            self.transcript.stopped(code)
         if tracked.restart:
             tracked.restart = False
             task = asyncio.get_running_loop().create_task(self._start(tracked))
@@ -252,6 +306,13 @@ class ConsoleApp(App[None]):
             self._quit()
         elif char == "?":
             self.show_help = True
+        elif char == "i":
+            self.key_mode = Mode.CHAT
+            self.pane = Pane.CHAT
+        elif char in ("a", "d"):
+            await self._confirm(approve=char == "a")
+        elif char == "R":
+            await self._new_conversation()
         elif char == "j" or key == "down":
             self._move(1)
         elif char == "k" or key == "up":
@@ -267,6 +328,8 @@ class ConsoleApp(App[None]):
                 self.pending_g = True
         elif char == "G":
             self._to_bottom()
+        elif key == "enter" and self.pane is Pane.CHAT:
+            self.key_mode = Mode.CHAT
         elif key == "enter" or char == "s":
             await self._toggle(self.current)
         elif char == "x":
@@ -274,11 +337,11 @@ class ConsoleApp(App[None]):
         elif char == "r":
             await self._restart(self.current)
         elif char == "h" or key == "left":
-            self.pane = Pane.UNITS
+            self.pane = PANES[max(PANES.index(self.pane) - 1, 0)]
         elif char == "l" or key == "right":
-            self.pane = Pane.LOGS
+            self.pane = PANES[min(PANES.index(self.pane) + 1, len(PANES) - 1)]
         elif key == "tab":
-            self.pane = Pane.LOGS if self.pane is Pane.UNITS else Pane.UNITS
+            self.pane = PANES[(PANES.index(self.pane) + 1) % len(PANES)]
         elif char == "C":
             await self._run(Command("clear"))
         elif char == ":":
@@ -293,24 +356,35 @@ class ConsoleApp(App[None]):
 
     async def _key_line(self, event: events.Key) -> None:
         key = event.key
+        chat = self.key_mode is Mode.CHAT
+        text = self.draft if chat else self.typed
         if key == "escape":
             self.key_mode = Mode.NORMAL
-        elif key == "enter":
-            text, self.typed = self.typed, ""
-            command = self.key_mode is Mode.COMMAND
-            self.key_mode = Mode.NORMAL
-            if command:
-                await self._run(parse_command(text))
+            return
+        if key == "enter":
+            if chat:
+                if await self._send(text.strip()):
+                    text = ""
             else:
-                self.search = text
-                self.hit = None
-                self._search_step(backwards=False)
+                text = ""
+                command = self.key_mode is Mode.COMMAND
+                self.key_mode = Mode.NORMAL
+                if command:
+                    await self._run(parse_command(self.typed))
+                else:
+                    self.search = self.typed
+                    self.hit = None
+                    self._search_step(backwards=False)
         elif key == "backspace":
-            self.typed = self.typed[:-1]
+            text = text[:-1]
         elif key == "ctrl+u":
-            self.typed = ""
+            text = ""
         elif event.is_printable and event.character:
-            self.typed += event.character
+            text += event.character
+        if chat:
+            self.draft = text
+        else:
+            self.typed = text
 
     # ---------- navigation ----------
 
@@ -329,6 +403,10 @@ class ConsoleApp(App[None]):
         if self.pane is Pane.UNITS:
             self._select(self.selected + n)
             return
+        if self.pane is Pane.CHAT:
+            # The transcript is pinned to its end; scrolling counts lines back from there.
+            self.chat_scroll = max(self.chat_scroll - n, 0)
+            return
         tracked = self.current
         last_top = max(len(tracked.logs) - self._rows(), 0)
         tracked.scroll = _clamp(self._log_top(tracked) + n, 0, last_top)
@@ -337,6 +415,8 @@ class ConsoleApp(App[None]):
     def _to_top(self) -> None:
         if self.pane is Pane.UNITS:
             self._select(0)
+        elif self.pane is Pane.CHAT:
+            self.chat_scroll = 1 << 30
         else:
             self.current.scroll = 0
             self.current.follow = False
@@ -344,6 +424,8 @@ class ConsoleApp(App[None]):
     def _to_bottom(self) -> None:
         if self.pane is Pane.UNITS:
             self._select(len(self.states) - 1)
+        elif self.pane is Pane.CHAT:
+            self.chat_scroll = 0
         else:
             self.current.follow = True
 
@@ -364,6 +446,60 @@ class ConsoleApp(App[None]):
         tracked.scroll = _clamp(found - rows // 2, 0, max(len(tracked.logs) - rows, 0))
         self.notice = f"/{self.search}  line {found + 1} of {len(tracked.logs)}"
 
+    # ---------- the agent ----------
+
+    def _agent_up(self) -> bool:
+        return self.agent is not None and self.runner.owns(self.agent.unit.id)
+
+    async def _tell_agent(self, message: dict[str, Any]) -> bool:
+        """Send one message to the agent process. False when it did not take it."""
+        if self.agent is None:
+            self.notice = "there is no agent unit"
+            return False
+        if await self.runner.send(self.agent.unit.id, json.dumps(message)):
+            return True
+        self.notice = "the agent is not running; select it and press enter"
+        return False
+
+    async def _send(self, text: str) -> bool:
+        """Ask the agent; the reply continues the conversation. False when nothing was sent."""
+        if not text:
+            return False
+        if not self._agent_up() or not self.transcript.ready:
+            self.notice = "the agent is not ready; select it to see why"
+            return False
+        if self.transcript.waiting:
+            self.notice = "the agent is still on the last message"
+            return False
+        if self.transcript.pending:
+            self.notice = "the agent is holding an action: a approves it, d denies it"
+            return False
+        if not await self._tell_agent({"op": "ask", "text": text}):
+            return False
+        self.transcript.ask(text)
+        self.chat_scroll = 0
+        if self.agent is not None:
+            # The middle pane shows the agent's events while it works.
+            self._select(self.states.index(self.agent))
+        return True
+
+    async def _confirm(self, approve: bool) -> None:
+        if self.transcript.pending is None:
+            self.notice = "nothing is waiting on you"
+            return
+        if await self._tell_agent({"op": "confirm", "approve": approve}):
+            self.transcript.confirming(approve)
+
+    async def _new_conversation(self) -> None:
+        if self.transcript.waiting:
+            self.notice = "the agent is still on the last message"
+            return
+        if self._agent_up() and not await self._tell_agent({"op": "new"}):
+            return
+        self.transcript.new()
+        self.chat_scroll = 0
+        self.notice = "new conversation"
+
     # ---------- control ----------
 
     async def _toggle(self, tracked: UnitState) -> None:
@@ -374,31 +510,74 @@ class ConsoleApp(App[None]):
 
     async def _start(self, tracked: UnitState) -> None:
         unit_id = tracked.unit.id
+        if tracked.unit.kind is Kind.INTERACTIVE:
+            await self._hand_over(tracked)
+            return
         if self.runner.owns(unit_id):
-            self.notice = f"{unit_id} is already running"
+            self.notice = f"{tracked.unit.name} is already running"
             return
         tracked.status = Status.RUNNING
         tracked.code = None
         tracked.started = time.monotonic()
         tracked.ended = None
         tracked.follow = True
+        agent = tracked.unit.kind is Kind.AGENT
+        if agent:
+            self.transcript.restarted()
         try:
-            await self.runner.start(unit_id, tracked.unit.args)
+            await self.runner.start(unit_id, tracked.unit.args, stdin=agent)
         except OSError as exc:
-            tracked.status = Status.FAILED
-            tracked.ended = time.monotonic()
-            self._on_line(unit_id, "meta", f"could not start: {exc}")
-            self.notice = f"could not start {unit_id}: {exc}"
+            self._failed_to_start(tracked, exc)
             return
-        self.notice = f"started {unit_id}"
+        self.notice = f"started {tracked.unit.name}"
         self._dirty = True
+
+    async def _hand_over(self, tracked: UnitState) -> None:
+        """Run an interactive unit on the terminal itself, the console suspended until it exits.
+
+        Painting is held meanwhile; the runner's tasks keep reading every other unit.
+        """
+        unit_id = tracked.unit.id
+        cmd = [*self.runner.launcher, *tracked.unit.args]
+        try:
+            with self.suspend():
+                self._handed_over = True
+                tracked.status, tracked.code = Status.RUNNING, None
+                tracked.started, tracked.ended = time.monotonic(), None
+                self._on_line(unit_id, "meta", "$ " + " ".join(cmd))
+                outcome = await self._foreground(cmd)
+        except SuspendNotSupported:
+            self.notice = f"{unit_id} needs a terminal the console can hand over"
+            return
+        finally:
+            self._handed_over = False
+            self._dirty = True
+        if isinstance(outcome, OSError):
+            self._failed_to_start(tracked, outcome)
+        else:
+            self._on_exit(unit_id, outcome)
+
+    async def _foreground(self, cmd: Sequence[str]) -> int | OSError:
+        """Run cmd attached to the terminal. A spawn error is returned rather than raised, so the
+        suspended console is always resumed."""
+        try:
+            proc = await asyncio.create_subprocess_exec(*cmd, cwd=self.root)
+        except OSError as exc:
+            return exc
+        return await proc.wait()
+
+    def _failed_to_start(self, tracked: UnitState, exc: OSError) -> None:
+        tracked.status = Status.FAILED
+        tracked.ended = time.monotonic()
+        self._on_line(tracked.unit.id, "meta", f"could not start: {exc}")
+        self.notice = f"could not start {tracked.unit.name}: {exc}"
 
     def _stop(self, tracked: UnitState) -> None:
         if self.runner.stop(tracked.unit.id):
             tracked.status = Status.STOPPING
-            self.notice = f"stopping {tracked.unit.id}"
+            self.notice = f"stopping {tracked.unit.name}"
         else:
-            self.notice = f"{tracked.unit.id} is not running"
+            self.notice = f"{tracked.unit.name} is not running"
 
     async def _restart(self, tracked: UnitState) -> None:
         if self.runner.owns(tracked.unit.id):
@@ -455,23 +634,43 @@ class ConsoleApp(App[None]):
     def _paint(self) -> None:
         units = self.query_one("#units", Static)
         logs = self.query_one("#logs", Static)
+        transcript = self.query_one("#transcript", Static)
+        ask = self.query_one("#ask", Static)
         units.set_class(self.pane is Pane.UNITS, "focused")
         logs.set_class(self.pane is Pane.LOGS, "focused")
+        transcript.set_class(self.pane is Pane.CHAT, "focused")
+        ask.set_class(self.key_mode is Mode.CHAT, "focused")
         self.query_one("#status", Static).update(self._status_text())
         units.border_title = "units"
         units.update(self._units_text(max(units.content_size.height, 1)))
         self._paint_logs(logs)
+        self._paint_chat(transcript, ask)
         self.query_one("#footer", Static).update(self._footer_text())
 
     def _status_text(self) -> Text:
         text = Text(no_wrap=True, overflow="ellipsis")
         text.append(" bijou ", "bold reverse")
-        mode_style = {Mode.NORMAL: "bold", Mode.COMMAND: "bold yellow", Mode.SEARCH: "bold cyan"}
+        mode_style = {
+            Mode.NORMAL: "bold",
+            Mode.COMMAND: "bold yellow",
+            Mode.SEARCH: "bold cyan",
+            Mode.CHAT: "bold green",
+        }
         text.append(f" {self.key_mode} ", mode_style[self.key_mode])
+        if self.agent is not None:
+            up = self._agent_up()
+            style = "green" if up and self.transcript.ready else "yellow" if up else "dim"
+            text.append("  ● " if up else "  ○ ", style)
+            text.append("agent", "" if up else "dim")
         snap = self.snap
         if snap is None:
             text.append("  reading status...", "dim")
         else:
+            for tracked in self.states:
+                if tracked.unit.kind is Kind.FOLLOW:
+                    alive = tracked.unit.service in snap.running
+                    text.append("  ● " if alive else "  ○ ", "green" if alive else "dim")
+                    text.append(tracked.unit.name, "" if alive else "dim")
             for gpu in snap.gpus:
                 share = gpu.used_mib / gpu.total_mib if gpu.total_mib else 0.0
                 style = "red" if share > 0.8 else "yellow" if share > 0.5 else "green"
@@ -494,9 +693,6 @@ class ConsoleApp(App[None]):
                 text.append(f"  ○ {snap.checkpoint} missing", "red")
             text.append(f"  adapters {snap.adapters}/{snap.skills}")
             text.append(f"  full {snap.full_finetunes}/{snap.skills}")
-            for name, alive in snap.services:
-                text.append("  ● " if alive else "  ○ ", "green" if alive else "dim")
-                text.append(name, "" if alive else "dim")
             if snap.last_run:
                 text.append(f"  last {snap.last_run}", "dim")
             text.append(f"  git {snap.git}", "dim")
@@ -513,7 +709,7 @@ class ConsoleApp(App[None]):
                 rows.append((Text(str(group), style="bold dim"), None))
             glyph, style = GLYPHS[tracked.status]
             name_style = "reverse" if i == self.selected else ""
-            rows.append((Text.assemble((f" {glyph} ", style), (tracked.unit.id, name_style)), i))
+            rows.append((Text.assemble((f" {glyph} ", style), (tracked.unit.name, name_style)), i))
         selected_row = next(r for r, (_, i) in enumerate(rows) if i == self.selected)
         top = _clamp(selected_row - height // 2, 0, max(len(rows) - height, 0))
         out = Text("\n").join(line for line, _ in rows[top : top + height])
@@ -529,7 +725,7 @@ class ConsoleApp(App[None]):
             logs.update(Text(HELP.format(log_dir=self.cfg.console.log_dir)))
             return
         now = time.monotonic()
-        parts = [tracked.unit.id, str(tracked.status)]
+        parts = [tracked.unit.name, str(tracked.status)]
         if tracked.status is Status.FAILED and tracked.code is not None:
             parts[-1] = f"failed ({tracked.code})"
         if tracked.started is not None:
@@ -554,11 +750,40 @@ class ConsoleApp(App[None]):
             body = Text("press enter to start this unit, ? for help", style="dim")
         logs.update(body)
 
+    def _paint_chat(self, transcript: Static, ask: Static) -> None:
+        t = self.transcript
+        transcript.border_title = f"chat · {t.session}" if t.session else "chat · new conversation"
+        if self.agent is None:
+            transcript.border_subtitle = "no agent unit"
+        elif not self._agent_up():
+            transcript.border_subtitle = "agent stopped"
+        else:
+            transcript.border_subtitle = "" if t.ready else "agent starting"
+        width = max(transcript.content_size.width, 10)
+        height = max(transcript.content_size.height, 1)
+        frame = SPINNER[int(time.monotonic() * 10) % len(SPINNER)]
+        lines = list(t.render(frame).wrap(self.console, width))
+        self.chat_scroll = min(self.chat_scroll, max(len(lines) - height, 0))
+        end = len(lines) - self.chat_scroll
+        shown = Text("\n").join(lines[max(end - height, 0) : end])
+        if not t.turns and not t.waiting:
+            shown = Text("press i to talk to the agent; each message continues the last", "dim")
+        transcript.update(shown)
+        ask.border_title = "ask"
+        if self.key_mode is Mode.CHAT:
+            ask.update(Text.assemble(("> ", "bold green"), self.draft, "█"))
+        elif t.pending:
+            ask.update(Text("a approve · d deny · i to type", style="bold yellow"))
+        else:
+            ask.update(Text("i to type · enter sends · esc leaves · R new conversation", "dim"))
+
     def _footer_text(self) -> Text:
         if self.key_mode is Mode.COMMAND:
             return Text(f":{self.typed}█")
         if self.key_mode is Mode.SEARCH:
             return Text(f"/{self.typed}█")
+        if self.key_mode is Mode.CHAT:
+            return Text("chat: enter sends · esc leaves · ctrl+u clears", style="dim")
         return Text(HINTS, style="dim", no_wrap=True, overflow="ellipsis")
 
 

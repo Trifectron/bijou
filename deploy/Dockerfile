@@ -1,6 +1,5 @@
-# The engine image: apps/engine with its model stack, for a GPU box. engine serve runs the agent
-# with the skill bank in process; engine serve-skills runs the bank alone. evals and the console
-# run from source.
+# The engine image: apps/engine with its model stack, for a GPU box: engine chat, engine run,
+# engine skills train. evals and the console run from source.
 # TORCH selects the torch build: cuda, or cpu for an image that runs without a GPU.
 FROM ghcr.io/astral-sh/uv:0.11-python3.12-trixie-slim
 
@@ -28,8 +27,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 ARG GIT_SHA=unknown
 ENV BIJOU_GIT_SHA=${GIT_SHA}
 
-# Both servers bind loopback by default; set BIJOU_AGENT__HTTP__HOST or BIJOU_SERVE__HOST to
-# 0.0.0.0 to reach them from outside.
-EXPOSE 8200 8100
+# engine chat serves metrics on loopback; set BIJOU_TELEMETRY__METRICS_HOST=0.0.0.0 to scrape it
+# from outside the container.
+EXPOSE 9464
 ENTRYPOINT ["engine"]
 CMD ["--help"]

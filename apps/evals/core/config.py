@@ -15,11 +15,11 @@ from pydantic_settings import (
 
 
 class Evals(BaseModel):
-    """Where the engine is, where cases live, and where reports and the baseline go."""
+    """How the engine is run, where cases live, and where reports and the baseline go."""
 
     model_config = ConfigDict(extra="forbid")
 
-    engine_url: str = "http://127.0.0.1:8200"
+    engine_command: list[str] = Field(default_factory=lambda: ["uv", "run", "--no-sync", "engine"])
     timeout_secs: float = 900.0
     cases_dir: Path = Path("apps/evals/cases")
     baseline_path: Path = Path("apps/evals/baseline.json")

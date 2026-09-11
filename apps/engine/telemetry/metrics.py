@@ -6,13 +6,14 @@ process, or two tests, never share counts. Counters are exported with a _total s
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from prometheus_client import (
-    CONTENT_TYPE_LATEST,
     CollectorRegistry,
     Counter,
     Gauge,
     Histogram,
-    generate_latest,
+    start_http_server,
 )
 
 from engine.core.types.agent import TraceEvent, TraceKind
@@ -25,9 +26,21 @@ def new_registry() -> CollectorRegistry:
     return CollectorRegistry()
 
 
-def exposition(registry: CollectorRegistry) -> tuple[bytes, str]:
-    """The registry in the Prometheus text format, and its content type."""
-    return generate_latest(registry), CONTENT_TYPE_LATEST
+def serve_metrics(
+    registry: CollectorRegistry, host: str, port: int
+) -> tuple[int, Callable[[], None]]:
+    """Serve the registry at /metrics on host:port from a daemon thread; port 0 takes a free one.
+
+    Returns the bound port and a call that stops the server. Raises OSError when the port is taken.
+    """
+    server, thread = start_http_server(port, addr=host, registry=registry)
+
+    def stop() -> None:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    return server.server_port, stop
 
 
 def skills_label(skills: list[str]) -> str:

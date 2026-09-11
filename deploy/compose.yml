@@ -1,6 +1,5 @@
 # Every service sits behind a profile; docker compose up with no profile starts nothing.
 #   model    chat: llama-server with the chat model on :8000.
-#   engine   engine: the agent HTTP API on :8200, the skill bank in process.
 #   observe  phoenix (traces, :6006), prometheus (:9090), grafana (:3000).
 #   gpu      gpu-exporter: GPU utilisation and VRAM from nvidia-smi on :9835.
 # Every port binds to 127.0.0.1.
@@ -45,34 +44,6 @@ services:
             - { driver: nvidia, count: 1, capabilities: [gpu] }
     restart: unless-stopped
 
-  # The agent HTTP API with the skill bank in process. Metrics at :8200/metrics.
-  engine:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
-      args:
-        TORCH: cuda
-    profiles: [engine]
-    command: ["serve"]
-    env_file:
-      - { path: ../.env, required: false }
-    environment:
-      BIJOU_AGENT__HTTP__HOST: 0.0.0.0
-      BIJOU_AGENT__LLM__BASE_URL: http://chat:8000/v1
-      BIJOU_TELEMETRY__OTLP_ENDPOINT: http://phoenix:6006/v1/traces
-    volumes:
-      - ../checkpoints:/app/checkpoints
-      - ../data:/app/data
-      - ../runs:/app/runs
-      - ../.bijou:/app/.bijou
-    ports: ["127.0.0.1:8200:8200"]
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - { driver: nvidia, count: 1, capabilities: [gpu] }
-    restart: unless-stopped
-
   # Trace UI (Arize Phoenix). UI and OTLP HTTP on 6006, OTLP gRPC on 4317.
   phoenix:
     image: arizephoenix/phoenix:latest
@@ -83,7 +54,7 @@ services:
     ports: ["127.0.0.1:6006:6006", "127.0.0.1:4317:4317"]
     restart: unless-stopped
 
-  # Metrics store. Scrapes llama-server, the engine and the skill bank, in compose or on the host.
+  # Metrics store. Scrapes llama-server, engine chat on the host, and the GPU exporter.
   prometheus:
     image: prom/prometheus:v3.1.0
     profiles: [observe]

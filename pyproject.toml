@@ -3,10 +3,10 @@
 #
 #   apps/engine   the diffusion model and its skill bank, the agent that equips it, collection,
 #                 research, and the engine command
-#   apps/evals    golden cases against a serving engine, scored by suite, gated on a baseline
+#   apps/evals    golden cases through the engine command, scored by suite, gated on a baseline
 #   apps/cli      the developer console over every just recipe
 #
-# Apps never import each other. evals reaches the engine over HTTP; the console runs recipes.
+# Apps never import each other. evals runs the engine command; the console runs recipes.
 
 [tool.uv.workspace]
 members = ["apps/*"]
@@ -47,7 +47,7 @@ known-first-party = ["engine", "evals", "cli"]
 "apps/*/tests/*" = ["ANN", "ARG"]
 
 [tool.ruff.lint.flake8-bugbear]
-extend-immutable-calls = ["typer.Option", "typer.Argument", "fastapi.Depends"]
+extend-immutable-calls = ["typer.Option", "typer.Argument"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -58,7 +58,6 @@ files = [
     "apps/engine/skills",
     "apps/engine/agent",
     "apps/engine/clients/chat.py",
-    "apps/engine/clients/remote_bank.py",
     "apps/engine/tools",
     "apps/engine/memory",
     "apps/engine/telemetry",
@@ -96,7 +95,6 @@ modules = ["engine", "evals", "cli"]
 # ---------------------------------------------------------------- inside the engine
 #
 #   commands
-#   api
 #   wiring
 #   agent | clients | tools | memory | collect
 #   runtime
@@ -109,7 +107,6 @@ name = "engine layering"
 type = "layers"
 layers = [
     "engine.commands",
-    "engine.api",
     "engine.wiring",
     "engine.agent | engine.clients | engine.tools | engine.memory | engine.collect",
     "engine.runtime",
@@ -140,7 +137,6 @@ forbidden_modules = [
     "engine.memory",
     "engine.collect",
     "engine.wiring",
-    "engine.api",
     "engine.commands",
 ]
 
@@ -161,7 +157,6 @@ source_modules = [
     "engine.memory",
     "engine.collect",
     "engine.wiring",
-    "engine.api",
     "engine.commands",
 ]
 forbidden_modules = ["nanodiff"]

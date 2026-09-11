@@ -10,8 +10,6 @@ dependencies = [
     "typer>=0.15",
     "rich>=13",
     "httpx>=0.28",
-    "fastapi>=0.115",
-    "uvicorn>=0.32",
     "mcp>=1.9",
     "prometheus-client>=0.21",
     "opentelemetry-sdk>=1.29",
@@ -55,6 +53,5 @@ packages = [
     "engine.memory",
     "engine.telemetry",
     "engine.collect",
-    "engine.api",
     "engine.commands",
 ]

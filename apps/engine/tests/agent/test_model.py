@@ -1,4 +1,4 @@
-"""The two model clients: OpenAI-compatible chat and the bijou skill server, over fake HTTP."""
+"""The chat model client, OpenAI-compatible, over fake HTTP."""
 
 import json
 
@@ -6,18 +6,15 @@ import httpx
 import pytest
 
 from engine.clients.chat import OpenAIChat, from_wire, to_wire
-from engine.clients.remote_bank import RemoteBank
-from engine.core.config import Llm, SkillServer
+from engine.core.config import Llm
 from engine.core.types.agent import (
     FinishReason,
     Message,
     ModelRequest,
-    PhaseSpec,
-    SkillRequest,
     ToolCall,
     ToolDefinition,
 )
-from engine.core.types.errors import ModelError, SkillRuntimeError
+from engine.core.types.errors import ModelError
 
 
 def reply(content="", tool_calls=None, finish="stop"):
@@ -95,43 +92,3 @@ async def test_a_good_reply_comes_back_as_a_model_response(ctx):
     response = await chat.generate(ctx, ModelRequest(messages=[Message.user("hi")]))
     assert response.content == "hi there"
     assert seen["path"] == "/v1/chat/completions" and seen["body"]["model"] == "m"
-
-
-async def test_the_skill_client_speaks_the_skill_server_contract(ctx):
-    seen = {}
-
-    def handler(request):
-        if request.url.path == "/skills":
-            return httpx.Response(200, json=[{"name": "a", "description": "d", "trained": True}])
-        seen["body"] = json.loads(request.content)
-        return httpx.Response(
-            200,
-            json={"text": "out", "skills": ["a"], "gen_length": 64, "steps": 32, "duration_ms": 5},
-        )
-
-    runtime = RemoteBank(SkillServer(), client(handler, "http://skills"))
-    assert (await runtime.catalog())[0].name == "a"
-    schedule = [PhaseSpec(start=0, end=1, skills={"a": 1.0})]
-    result = await runtime.run(ctx, SkillRequest(prompt="p", schedule=schedule))
-    assert result.text == "out"
-    assert seen["body"] == {
-        "prompt": "p",
-        "skills": [],
-        "schedule": [{"start": 0.0, "end": 1.0, "skills": {"a": 1.0}}],
-        "instruct": True,
-    }
-
-
-async def test_the_skill_client_reports_refusals_and_outages(ctx):
-    refused = RemoteBank(
-        SkillServer(),
-        client(lambda r: httpx.Response(422, json={"detail": "not trained: z"}), "http://s"),
-    )
-    with pytest.raises(SkillRuntimeError, match="not trained: z"):
-        await refused.run(ctx, SkillRequest(prompt="p", skills=["z"]))
-
-    def down(request):
-        raise httpx.ConnectError("refused")
-
-    with pytest.raises(SkillRuntimeError, match="just serve"):
-        await RemoteBank(SkillServer(), client(down, "http://s")).catalog()

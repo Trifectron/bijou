@@ -1,13 +1,11 @@
 """Telemetry: metrics counted from trace events, a span tree for Phoenix, both off the loop."""
 
-from contextlib import asynccontextmanager
+import urllib.request
 
-from fastapi.testclient import TestClient
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-from engine.api.agent import create_app
 from engine.core.config import Telemetry
 from engine.core.doubles import (
     FakeSkillRuntime,
@@ -18,7 +16,7 @@ from engine.core.doubles import (
     text,
 )
 from engine.core.types.agent import RiskClass, SkillInfo, TraceEvent, TraceKind
-from engine.telemetry.metrics import AgentMetrics, MetricsSink, new_registry
+from engine.telemetry.metrics import AgentMetrics, MetricsSink, new_registry, serve_metrics
 from engine.telemetry.otel import OtelSink, open_tracer
 from engine.wiring import build
 
@@ -148,12 +146,13 @@ def test_no_endpoint_means_no_exporter():
     opened[1]()
 
 
-def test_the_agent_serves_its_metrics(cfg):
-    @asynccontextmanager
-    async def factory(agent_cfg):
-        yield agent_for(agent_cfg, [text("done")])
-
-    with TestClient(create_app(cfg, factory)) as client:
-        client.post("/run", json={"request": "find x"})
-        body = client.get("/metrics").text
+async def test_the_metrics_port_serves_what_the_agent_counted(cfg):
+    registry = new_registry()
+    await agent_for(cfg, [text("done")], registry=registry).orchestrator.run("find x")
+    port, stop = serve_metrics(registry, "127.0.0.1", 0)
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/metrics", timeout=5) as response:
+            body = response.read().decode()
+    finally:
+        stop()
     assert 'bijou_agent_runs_total{status="answered"} 1.0' in body
