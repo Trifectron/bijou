@@ -74,6 +74,15 @@ GLYPHS = {
 
 STREAM_STYLES: dict[Stream, str] = {"out": "", "err": "", "meta": "cyan"}
 
+# A service is only green once its healthcheck passes: a model still loading cannot answer.
+SERVICE_GLYPHS = {
+    "running": ("●", "green"),
+    "starting": ("◐", "yellow"),
+    "unhealthy": ("●", "red"),
+    "restarting": ("✗", "red"),
+    "stopped": ("○", "dim"),
+}
+
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 HINTS = (
@@ -191,6 +200,7 @@ class ConsoleApp(App[None]):
         self._running_services: frozenset[str] = frozenset()
         self._dirty = True
         self._handed_over = False
+        self._closing = False
 
     # ---------- layout and lifecycle ----------
 
@@ -220,13 +230,16 @@ class ConsoleApp(App[None]):
         self._dirty = True
 
     async def on_unmount(self) -> None:
+        # Nothing paints from here on: the widgets are going away while the units are drained.
+        self._closing = True
         self.runner.shutdown()
         await self.runner.drain()
         self.writer.close()
 
     async def _poll(self) -> None:
         self.snap = await asyncio.to_thread(self.probe, self.cfg)
-        await self._follow(self.snap.running)
+        running = frozenset(n for n, state in self.snap.services.items() if state == "running")
+        await self._follow(running)
         self._dirty = True
 
     async def _follow(self, running: frozenset[str]) -> None:
@@ -253,7 +266,9 @@ class ConsoleApp(App[None]):
 
     def _refresh_if_dirty(self) -> None:
         # The spinner turns while the agent works.
-        if (self._dirty or self.transcript.waiting) and not self._handed_over:
+        if self._closing or self._handed_over:
+            return
+        if self._dirty or self.transcript.waiting:
             self._dirty = False
             self._paint()
 
@@ -540,10 +555,16 @@ class ConsoleApp(App[None]):
         else:
             await self._start(tracked)
 
+    def _service_state(self, service: str) -> str:
+        """running, starting, unhealthy, restarting, or stopped."""
+        if self.snap is None:
+            return "stopped"
+        return self.snap.services.get(service, "stopped")
+
     async def _service(self, tracked: UnitState) -> None:
         """Start or stop the compose service this unit is. Its logs follow while it runs."""
         service = tracked.unit.service
-        up = self.snap is not None and service in self.snap.running
+        up = self._service_state(service) != "stopped"
         if up and self.runner.owns(tracked.unit.id):
             self.runner.stop(tracked.unit.id)
         await self.runner.run_once(tracked.unit.id, ("stop" if up else "up", service))
@@ -727,8 +748,7 @@ class ConsoleApp(App[None]):
             glyph, style = GLYPHS[tracked.status]
             if tracked.unit.kind is Kind.SERVICE:
                 # A service's light is the service itself, not its log follower.
-                up = self.snap is not None and tracked.unit.service in self.snap.running
-                glyph, style = ("●", "green") if up else ("○", "dim")
+                glyph, style = SERVICE_GLYPHS[self._service_state(tracked.unit.service)]
             name_style = "reverse" if i == self.selected else ""
             rows.append((Text.assemble((f" {glyph} ", style), (tracked.unit.name, name_style)), i))
         selected_row = next(r for r, (_, i) in enumerate(rows) if i == self.selected)

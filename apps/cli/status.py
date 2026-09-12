@@ -6,7 +6,8 @@ import json
 import os
 import shutil
 import subprocess
-from dataclasses import dataclass, replace
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePath
 
 from cli.core.config import Config
@@ -46,8 +47,8 @@ class Snapshot:
     skills: int
     last_run: str
     git: str
-    # The compose services that are up, by name.
-    running: frozenset[str] = frozenset()
+    # Each compose service that exists, by name: running, starting, unhealthy or restarting.
+    services: Mapping[str, str] = field(default_factory=dict)
     machine: Machine | None = None
 
 
@@ -139,22 +140,48 @@ def last_run(runs: Path) -> str:
     return f"{newest[1]} {newest[0][5:16].replace('T', ' ')}"
 
 
-def compose_running(compose: Path = Path("deploy/compose.yml")) -> frozenset[str]:
-    """The compose services that are up, by name. Empty when docker is absent or fails."""
+def parse_compose_ps(out: str) -> dict[str, str]:
+    """docker compose ps --format json, as service -> running, starting, unhealthy or restarting.
+
+    A container that is up but whose healthcheck has not passed yet is starting, not running: the
+    agent cannot reach a model that is still loading. Compose writes one object per line, or one
+    array, depending on its version.
+    """
+    try:
+        rows = (
+            json.loads(out)
+            if out.lstrip().startswith("[")
+            else [json.loads(line) for line in out.splitlines() if line.strip()]
+        )
+    except json.JSONDecodeError:
+        return {}
+    states = {}
+    for row in rows:
+        name, state, health = row.get("Service"), row.get("State"), row.get("Health") or ""
+        if not name:
+            continue
+        if state == "running":
+            states[name] = "running" if health in ("", "healthy") else health
+        elif state in ("restarting", "removing", "paused"):
+            states[name] = "restarting"
+    return states
+
+
+def compose_services(compose: Path = Path("deploy/compose.yml")) -> dict[str, str]:
+    """What each compose service is doing. Empty when docker is absent or fails."""
     if shutil.which("docker") is None or not compose.exists():
-        return frozenset()
+        return {}
     try:
         out = subprocess.run(
-            ["docker", "compose", "-f", str(compose), "--profile", "*", "ps", "--services"]
-            + ["--status", "running"],
+            ["docker", "compose", "-f", str(compose), "--profile", "*", "ps", "--format", "json"],
             capture_output=True,
             text=True,
             timeout=5,
             check=True,
         ).stdout
     except (subprocess.SubprocessError, OSError):
-        return frozenset()
-    return frozenset(line.strip() for line in out.splitlines() if line.strip())
+        return {}
+    return parse_compose_ps(out)
 
 
 def snapshot(cfg: Config) -> Snapshot:
@@ -171,6 +198,6 @@ def snapshot(cfg: Config) -> Snapshot:
         skills=len(skills),
         last_run=last_run(cfg.paths.runs),
         git=git_sha(),
-        running=compose_running(),
+        services=compose_services(),
         machine=machine(),
     )

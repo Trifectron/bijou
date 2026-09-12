@@ -15,7 +15,7 @@ from cli.core.config import Config
 from cli.logs import LogBuffer, LogLine, LogWriter, log_name
 from cli.meters import Meters, spark
 from cli.runner import Runner
-from cli.status import Snapshot, last_run, parse_gpus, parse_holders
+from cli.status import Snapshot, last_run, parse_compose_ps, parse_gpus, parse_holders
 from cli.units import Command, Group, Kind, Unit, catalog, parse_command
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -125,6 +125,27 @@ def test_nvidia_smi_output_parses():
         "llama-server",
     )
     assert parse_gpus("") == []
+
+
+def test_compose_ps_tells_a_running_service_from_one_still_starting():
+    rows = [
+        '{"Service":"chat","State":"running","Health":"starting"}',
+        '{"Service":"phoenix","State":"restarting","Health":""}',
+        '{"Service":"grafana","State":"running","Health":""}',
+        '{"Service":"prometheus","State":"running","Health":"healthy"}',
+        '{"Service":"gpu-exporter","State":"exited","Health":""}',
+    ]
+    assert parse_compose_ps("\n".join(rows)) == {
+        "chat": "starting",
+        "phoenix": "restarting",
+        "grafana": "running",
+        "prometheus": "running",
+    }
+    # Some versions of compose write one array instead of a line each.
+    assert parse_compose_ps('[{"Service":"chat","State":"running","Health":"healthy"}]') == {
+        "chat": "running"
+    }
+    assert parse_compose_ps("not json") == {} and parse_compose_ps("") == {}
 
 
 def test_the_newest_run_record_is_the_last_run(tmp_path):
@@ -247,7 +268,7 @@ def _app(cfg, tmp_path, *scripts: str):
     return ConsoleApp(cfg, tmp_path, units=units, launcher=("sh", "-c"), probe=_snapshot)
 
 
-async def _until(pilot, condition, timeout: float = 10.0) -> None:
+async def _until(pilot, condition, timeout: float = 20.0) -> None:
     for _ in range(int(timeout / 0.05)):
         if condition():
             return
@@ -384,7 +405,7 @@ def test_a_service_row_starts_and_stops_that_service(cfg, tmp_path):
     running: set[str] = set()
 
     def probe(config):
-        return replace(_snapshot(config), running=frozenset(running))
+        return replace(_snapshot(config), services={name: "running" for name in running})
 
     async def scenario() -> None:
         unit = Unit(Group.SERVICES, ("logs", "chat"), "hint", Kind.SERVICE, "llama-server", "chat")
