@@ -8,6 +8,8 @@ choose, so no model call is made.
 
 from __future__ import annotations
 
+import time
+
 from pydantic import BaseModel, Field
 
 from engine.agent.llm import structured
@@ -75,6 +77,7 @@ class SkillSelector:
         planning = self.cfg.planning
         trained = {s.name for s in skills if s.trained}
         usage = Usage()
+        started = time.monotonic()
         if planning.max_skills == 0:
             pick = SkillPick(reason="equipping is off: agent.planning.max_skills is 0")
         elif not trained:
@@ -114,6 +117,7 @@ class SkillSelector:
                     "skills": pick.equipped,
                     "schedule": [p.model_dump() for p in pick.schedule or []],
                     "reason": pick.reason,
+                    "duration_ms": int((time.monotonic() - started) * 1000),
                 },
             )
         )

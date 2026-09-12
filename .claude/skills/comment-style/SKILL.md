@@ -13,7 +13,7 @@ touches. `third_party/` is exempt; it is never edited.
 A comment states behaviour. It does not argue for it.
 
 No rationale, trade-offs, history, alternatives considered, or what a past version did. Those
-belong in the commit message or in `docs/decisions/`.
+belong in the commit message.
 
 ```python
 # Rows are scored one block at a time.

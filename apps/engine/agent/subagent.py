@@ -334,26 +334,32 @@ class Subagent:
         timeout = max(min(self.cfg.loop.tool_timeout_secs, ctx.remaining()), 0.001)
         started = time.monotonic()
         ok = False
+        reported: dict[str, object] = {}
         try:
             output = await asyncio.wait_for(tool.call(ctx, call.arguments), timeout=timeout)
-            text, ok = output.text, True
+            text, ok, reported = output.text, True, dict(output.data or {})
         except TimeoutError:
             text = f"error: {call.name} took longer than {timeout:.0f}s"
         except ToolError as exc:
             text = f"error: {exc}"
         text = truncate(text, self.cfg.loop.max_tool_output_chars)
+        data: dict[str, object] = {
+            "tool": call.name,
+            "ok": ok,
+            "chars": len(text),
+            "preview": text[:300],
+            "duration_ms": int((time.monotonic() - started) * 1000),
+        }
+        # What the tool reported about its own work, such as what run_skill equipped and how long
+        # generating took. Never over a field this event already carries.
+        for key, item in reported.items():
+            data.setdefault(key, item)
         self.trace.emit(
             TraceEvent(
                 kind=TraceKind.TOOL_RESULT,
                 session_id=ctx.session_id,
                 step_id=step_id,
-                data={
-                    "tool": call.name,
-                    "ok": ok,
-                    "chars": len(text),
-                    "preview": text[:300],
-                    "duration_ms": int((time.monotonic() - started) * 1000),
-                },
+                data=data,
             )
         )
         return text

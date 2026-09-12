@@ -136,10 +136,11 @@ class Patterns(_Table):
 
 
 class Trace(_Table):
-    """One JSONL file per session."""
+    """One JSONL file per session, and the live lines the terminal prints while a run happens."""
 
     enabled: bool = True
     dir: Path = Path(".bijou/traces")
+    live: bool = True
 
 
 class Prompt(_Table):

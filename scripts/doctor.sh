@@ -51,9 +51,16 @@ metrics=$(uv run --no-sync python -c \
   "from engine.core.config import load; t = load().telemetry; \
 print(f'http://{t.metrics_host}:{t.metrics_port}/metrics' if t.metrics_port else '')" 2>/dev/null)
 [ -n "$metrics" ] && probe "agent" "$metrics" "run: just chat, or just console"
-probe "phoenix" "http://127.0.0.1:6006/" "run: just up observe"
-probe "prom" "http://127.0.0.1:9090/-/ready" "run: just up observe"
-probe "grafana" "http://127.0.0.1:3000/api/health" "run: just up observe"
+probe "phoenix" "http://127.0.0.1:6006/" "run: just up phoenix"
+probe "prom" "http://127.0.0.1:9090/-/ready" "run: just up prometheus"
+probe "grafana" "http://127.0.0.1:3000/api/health" "run: just up grafana"
+otlp=$(uv run --no-sync python -c \
+  "from engine.core.config import load; print(load().telemetry.otlp_endpoint)" 2>/dev/null)
+if [ -n "$otlp" ]; then
+  printf '  ok      %-8s %s\n' "traces" "$otlp"
+else
+  printf '  off     %-8s %s\n' "traces" "set BIJOU_TELEMETRY__OTLP_ENDPOINT in .env to send spans"
+fi
 echo "gpu:"
 if command -v nvidia-smi >/dev/null 2>&1; then
   nvidia-smi --query-gpu=name,memory.total --format=csv,noheader | sed 's/^/  /'

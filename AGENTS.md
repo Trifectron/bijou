@@ -2,8 +2,8 @@
 
 LoRA skills on a masked diffusion language model, and an agent that plans with an LLM and equips
 those skills per step. Read `docs/ROADMAP.md` for what is being built and tested in what order,
-`docs/ARCHITECTURE.md` for the packages, their boundaries and invariants, and `docs/decisions/`
-for why. Do not contradict them; propose an edit to the doc instead.
+and `docs/ARCHITECTURE.md` for the packages, their boundaries and invariants. Do not contradict
+them; propose an edit to the doc instead.
 
 ## Commands
 
@@ -28,7 +28,7 @@ just runs [id]        # run records; an id prints one
 just config [table]   # the resolved configuration
 just evals [cmd]      # golden cases through engine run --json, gated on the baseline
 just console          # the developer console (TUI); alias: just cli
-just up [profiles]    # compose: observe (phoenix, prometheus, grafana), model (llama-server), gpu
+just up <services>    # compose: phoenix, prometheus, grafana, chat (llama-server), gpu-exporter
 just down | logs      # stop the compose services, follow their logs
 ```
 
@@ -44,7 +44,7 @@ apps/engine     everything that runs: the diffusion model, its skill bank, the a
 apps/evals      golden cases through the engine command, suites, baseline gate
 apps/cli        the developer console
 third_party/    the nanoDiff submodule, pristine
-docs/           ROADMAP.md, ARCHITECTURE.md, decisions/
+docs/           ROADMAP.md, ARCHITECTURE.md
 deploy/         the engine image
 data/           collected skills and proposals (ignored)
 runs/           immutable run records (ignored)
@@ -120,15 +120,14 @@ change. Reject a bad combination at load rather than clamping it at use.
   No bare `Exception` raised, no `assert` for control flow outside tests.
 - Never edit `third_party/`. Upstream behaviour we depend on gets a parity test.
 - Comment style: see the `comment-style` skill. Plain ASCII, state what the code does, no
-  rationale — the why belongs in the commit message and in `docs/decisions/`.
+  rationale — the why belongs in the commit message.
 - Commit messages: imperative subject at most 72 chars, body explains why.
 
 ## Skills
 
 `.claude/skills/README.md` lists them. Use `test-driven-development` for features and fixes,
 `systematic-debugging` for bugs, `verification-before-completion` before saying anything is done,
-`comment-style` when writing comments, `adr` when a decision needs recording, `code-quality` for
-cleanup passes.
+`comment-style` when writing comments, and `code-quality` for cleanup passes.
 
 ## Out of scope
 

@@ -162,9 +162,12 @@ window = 500
 proposals_dir = "data/proposals"
 max_examples = 20
 
+# enabled writes one JSONL file per session; live prints each event as engine run and engine chat
+# work, so the plan, the skills each step equipped and every tool call are visible before the answer.
 [agent.trace]
 enabled = true
 dir = ".bijou/traces"
+live = true
 
 # ================================================================ telemetry
 # Spans over OTLP to Phoenix. otlp_endpoint is per-machine and lives in .env as
@@ -173,6 +176,9 @@ dir = ".bijou/traces"
 # just up observe to scrape; port 0 serves none.
 [telemetry]
 service_name = "bijou-engine"
+# The Phoenix project the spans land in; its own project keeps them apart from anything else
+# sending to the same collector.
+project_name = "bijou"
 sample_ratio = 1.0
 export_timeout_secs = 10.0
 metrics_host = "127.0.0.1"

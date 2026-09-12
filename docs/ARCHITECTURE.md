@@ -12,8 +12,6 @@ equipped skills through the diffusion model. Every run is a session, indexed, an
 that no skill covers is proposed as a new skill, collected with a teacher model, and trained into
 the bank.
 
-`docs/decisions/0002-*` records why the agent is here and why the work is split between two models.
-
 ## Apps
 
 ```mermaid
@@ -100,8 +98,9 @@ from a teacher LLM, deduplicated, shuffled by `collect.seed`, split once into fi
 `RunRecord`. A spec that is not approved is refused.
 
 `commands` is the engine command: `chat` holds a warm agent and takes turns over stdin, in the
-terminal or as JSON lines for the console; `run` does one request and exits. `runtime` also holds
-the composition matrix, the research eval.
+terminal or as JSON lines for the console; `run` does one request and exits; `live` renders trace
+events as the terminal lines both print while a request runs. `runtime` also holds the composition
+matrix, the research eval.
 
 ## The agent
 
@@ -111,7 +110,7 @@ the composition matrix, the research eval.
 | `SkillRuntime` | `clients.local_bank.LocalBank` | the skill bank, in this process |
 | `Tool` | `tools.builtin`, `tools.mcp.McpTool`, `agent.toolset.SkillTool` | a capability |
 | `Policy` | `agent.policy.RiskPolicy` | allow, deny, or hold for the user |
-| `TraceSink` | `agent.trace.JsonlTrace`, `Collector`, `Fanout`, `commands.chat.LineSink` | where events go |
+| `TraceSink` | `agent.trace.JsonlTrace`, `Collector`, `Fanout`, `commands.chat.LineSink`, `commands.live.LiveTrace` | where events go |
 | `SessionStore` | `memory.sessions.SqliteSessionStore` | the session index |
 
 Every protocol has a double in `core/doubles.py`, which is how every agent test runs whole
@@ -225,6 +224,12 @@ pick, every model call with tokens, duration, the prompt and the reply (up to
 step's end, confirmations, notices. A run's events also come back in its result, which is what
 evals read.
 
+The same events are what the terminal shows while a request runs, one line each, when
+`agent.trace.live` is set: the plan and its steps, the skills each step equipped with the
+selector's reason and how long choosing took, each model call with its tokens and latency, each
+policy decision, each tool call, and `run_skill` with equipping and generating timed apart. The
+console reads the event lines itself, so it prints none of these.
+
 ## Inference and observability
 
 | What | Runs on | Started by |
@@ -251,8 +256,9 @@ knows it exists.
 - `OtelSink` builds OpenInference spans from the same events and exports them over OTLP when
   `BIJOU_TELEMETRY__OTLP_ENDPOINT` is set: `agent.run` (CHAIN, with `session.id`), a `step` per
   plan step (AGENT, with its skills), an `llm` span per model call (with the prompt, the reply
-  and tokens) and a `tool` span per tool call. A run waiting on a confirmation ends its span;
-  `confirm` opens `agent.confirm` in the same session.
+  and tokens) and a `tool` span per tool call, `run_skill` among them, carrying `bijou.equip_ms`
+  and `bijou.generate_ms`. Spans land in the Phoenix project `telemetry.project_name`. A run
+  waiting on a confirmation ends its span; `confirm` opens `agent.confirm` in the same session.
 
 `deploy/compose.yml` holds the services in profiles; nothing starts without one.
 `deploy/inference/README.md` covers the chat model and VRAM on a 6 GB GPU.

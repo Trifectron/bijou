@@ -105,5 +105,5 @@ class SkillTool:
             raise ToolError(str(exc)) from exc
         return ToolOutput(
             text=result.text,
-            data={"skills": result.skills, "duration_ms": result.duration_ms},
+            data={"skills": result.skills, "generate_ms": result.duration_ms},
         )

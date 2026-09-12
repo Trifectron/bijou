@@ -123,6 +123,10 @@ async def test_a_run_becomes_a_span_tree_phoenix_can_read(cfg):
     assert step.attributes["bijou.skills"] == '["json_extract"]'
     assert tool.attributes["tool.name"] == "lookup" and '"x"' in tool.attributes["input.value"]
     assert plan.attributes["llm.token_count.prompt"] == 10
+    assert (
+        plan.attributes["llm.token_count.total"]
+        == plan.attributes["llm.token_count.completion"] + 10
+    )
     assert "You plan work" in plan.attributes["input.value"]
     assert all(s.context.trace_id == root.context.trace_id for s in spans)
 
@@ -139,11 +143,68 @@ async def test_a_confirmed_run_is_two_root_spans(cfg):
     assert confirm.attributes["bijou.status"] == "answered"
 
 
+async def test_a_pick_and_an_equipped_skill_run_carry_their_timings(cfg):
+    sink, exporter = tracer()
+    events = [
+        TraceEvent(kind=TraceKind.RUN_STARTED, session_id="s", data={"request": "find x"}),
+        TraceEvent(
+            kind=TraceKind.SKILLS_PICKED,
+            session_id="s",
+            step_id="1",
+            data={"skills": ["json_extract"], "reason": "fits", "duration_ms": 420},
+        ),
+        TraceEvent(
+            kind=TraceKind.TOOL_RESULT,
+            session_id="s",
+            step_id="1",
+            data={
+                "tool": "run_skill",
+                "ok": True,
+                "preview": "{}",
+                "duration_ms": 2400,
+                "skills": ["json_extract"],
+                "generate_ms": 900,
+            },
+        ),
+        TraceEvent(
+            kind=TraceKind.STEP_DONE, session_id="s", step_id="1", data={"status": "answered"}
+        ),
+        TraceEvent(kind=TraceKind.RUN_DONE, session_id="s", data={"status": "answered"}),
+    ]
+    for event in events:
+        sink.emit(event)
+    step = next(s for s in spans_of(exporter) if s.name == "step")
+    tool = next(s for s in spans_of(exporter) if s.name == "tool")
+    assert step.attributes["bijou.pick_ms"] == 420
+    assert tool.attributes["bijou.equip_ms"] == 1500
+    assert tool.attributes["bijou.generate_ms"] == 900
+
+
+async def test_a_run_that_did_not_answer_marks_its_span_an_error(cfg):
+    sink, exporter = tracer()
+    sink.emit(TraceEvent(kind=TraceKind.RUN_STARTED, session_id="s", data={"request": "x"}))
+    sink.emit(TraceEvent(kind=TraceKind.RUN_DONE, session_id="s", data={"status": "error"}))
+    root = next(s for s in spans_of(exporter) if s.name == "agent.run")
+    assert root.status.status_code.name == "ERROR"
+
+
 def test_no_endpoint_means_no_exporter():
     assert open_tracer(Telemetry()) is None
     opened = open_tracer(Telemetry(otlp_endpoint="http://127.0.0.1:9/v1/traces"))
     assert opened is not None
     opened[1]()
+
+
+def test_spans_name_the_phoenix_project_they_belong_to():
+    opened = open_tracer(
+        Telemetry(otlp_endpoint="http://127.0.0.1:9/v1/traces", project_name="bijou")
+    )
+    assert opened is not None
+    sink, shutdown = opened
+    resource = sink.tracer.resource
+    assert resource.attributes["openinference.project.name"] == "bijou"
+    assert resource.attributes["service.name"] == "bijou-engine"
+    shutdown()
 
 
 async def test_the_metrics_port_serves_what_the_agent_counted(cfg):

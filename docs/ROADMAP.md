@@ -2,7 +2,7 @@
 
 Two tracks. The research track is ordered so each step can kill the claim and the cheap ones come
 first; it decides what can be said about adapters. The agent track builds the system in the v0
-design (`docs/decisions/0002-*`); it does not wait on the research track, and its results are not
+design; it does not wait on the research track, and its results are not
 evidence about adapters.
 
 ## Research
@@ -38,7 +38,7 @@ The only diffusion-specific claim.
 
 Kill criterion: phase routing is indistinguishable from static. Then the diffusion substrate is
 not earning its keep; the skill bank moves to an autoregressive LoRA server behind the same
-`SkillRuntime` protocol (0002, Reversal).
+`SkillRuntime` protocol.
 
 ## Agent
 

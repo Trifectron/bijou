@@ -87,13 +87,15 @@ __all__ = [
 
 class Telemetry(BaseModel):
     """Spans over OTLP, read by Phoenix, and Prometheus metrics. otlp_endpoint is per-machine and
-    lives in .env as BIJOU_TELEMETRY__OTLP_ENDPOINT; empty sends no spans. engine chat serves the
-    metrics at metrics_host:metrics_port while it runs; port 0 serves none."""
+    lives in .env as BIJOU_TELEMETRY__OTLP_ENDPOINT; empty sends no spans. project_name is the
+    Phoenix project the spans land in. engine chat serves the metrics at
+    metrics_host:metrics_port while it runs; port 0 serves none."""
 
     model_config = ConfigDict(extra="forbid")
 
     otlp_endpoint: str = ""
     service_name: str = "bijou-engine"
+    project_name: str = "bijou"
     sample_ratio: float = 1.0
     export_timeout_secs: float = 10.0
     metrics_host: str = "127.0.0.1"

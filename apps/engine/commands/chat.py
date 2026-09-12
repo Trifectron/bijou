@@ -27,7 +27,9 @@ import typer
 
 from engine.commands.agent import show_result
 from engine.commands.app import app, console, err, fail, settings
+from engine.commands.live import LiveTrace
 from engine.core.config import Telemetry
+from engine.core.protocols import TraceSink
 from engine.core.types.agent import RunResult, TraceEvent
 from engine.core.types.errors import ConfirmationError, EngineError
 from engine.telemetry.metrics import serve_metrics, stats
@@ -194,9 +196,13 @@ def chat(
     """Talk to the agent; each message continues the conversation. Serves metrics meanwhile."""
     cfg = settings()
     write = protocol_write() if jsonl else None
+    # The console reads the event lines itself; the terminal has them printed as they happen.
+    sinks: list[TraceSink] = [LineSink(write)] if write else []
+    if write is None and cfg.agent.trace.live:
+        sinks.append(LiveTrace(console))
 
     async def go() -> None:
-        async with open_agent(cfg, [LineSink(write)] if write else []) as agent:
+        async with open_agent(cfg, sinks) as agent:
             url, stop = _serve_metrics(agent, cfg.telemetry)
             try:
                 convo = Conversation(agent, user)

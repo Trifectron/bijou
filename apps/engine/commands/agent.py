@@ -10,6 +10,8 @@ from rich.panel import Panel
 from rich.table import Table
 
 from engine.commands.app import app, console, fail, settings
+from engine.commands.live import LiveTrace
+from engine.core.protocols import TraceSink
 from engine.core.types.agent import RunResult, RunStatus, SessionSummary
 from engine.core.types.errors import EngineError
 from engine.memory.sessions import SqliteSessionStore
@@ -68,9 +70,10 @@ def run(
 ) -> None:
     """Plan, equip skills, act and answer. Asks before any action that needs confirmation."""
     cfg = settings()
+    live: list[TraceSink] = [LiveTrace(console)] if cfg.agent.trace.live and not as_json else []
 
     async def go() -> None:
-        async with open_agent(cfg) as agent:
+        async with open_agent(cfg, live) as agent:
             result = await agent.orchestrator.run(request, resume, user)
             while True:
                 if as_json:

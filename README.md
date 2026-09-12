@@ -30,7 +30,7 @@ User -> planner (LLM) -> subagent per step
 
 Alongside the product sits a research track with kill criteria: do adapters beat a tuned prompt,
 do they compose, and does routing them by denoising phase beat leaving them on.
-`docs/ROADMAP.md` has both tracks; `docs/decisions/0002-*` explains the split between the LLM and
+`docs/ROADMAP.md` has both tracks; `docs/ARCHITECTURE.md` explains the split between the LLM and
 the diffusion model.
 
 ## Quick start
@@ -134,7 +134,7 @@ serving system.
 ## Substrate
 
 [nanoDiff](https://github.com/BY571/nanoDiff), pinned as a submodule: LLaDA-style masked diffusion
-at 50M, 150M and 350M, chosen for iteration speed (`docs/decisions/0001-*`). A larger diffusion
+at 50M, 150M and 350M, chosen for iteration speed. A larger diffusion
 backend is a sibling module in `apps/engine/backends`, on the agent roadmap.
 
 Contributing: read [AGENTS.md](AGENTS.md).

@@ -10,6 +10,9 @@ Spans use OpenInference attributes, so Phoenix shows each run as a tree:
 A model or tool span is created when its call ends, with its start set from the duration the
 event carries. A run's span stays open while it waits on a confirmation and ends when the
 run's run_done event arrives.
+
+The resource names the Phoenix project the spans land in, so they stay apart from anything else
+sending to the same collector.
 """
 
 from __future__ import annotations
@@ -30,6 +33,8 @@ from engine.core.config import Telemetry
 from engine.core.types.agent import TraceEvent, TraceKind
 
 KIND = "openinference.span.kind"
+PROJECT = "openinference.project.name"
+ANSWERED = ("answered", "awaiting_confirmation")
 
 
 def ns(at: datetime) -> int:
@@ -80,9 +85,12 @@ class OtelSink:
         if root is None:
             return
         if event.kind is TraceKind.RUN_DONE:
-            root.set_attribute("bijou.status", str(event.data.get("status", "")))
+            status = str(event.data.get("status", ""))
+            root.set_attribute("bijou.status", status)
             if "answer" in event.data:
                 root.set_attribute("output.value", value(event.data["answer"]))
+            if status not in ANSWERED:
+                root.set_status(ot.Status(ot.StatusCode.ERROR, status))
             self._close(sid, event.at, None)
             return
         parent = self._step(event, root) if event.step_id else root
@@ -92,8 +100,11 @@ class OtelSink:
             span = self.tracer.start_span("llm", context=context, start_time=started(event))
             span.set_attribute(KIND, "LLM")
             span.set_attribute("llm.model_name", str(data.get("model", "")))
-            span.set_attribute("llm.token_count.prompt", int(data.get("prompt_tokens", 0)))
-            span.set_attribute("llm.token_count.completion", int(data.get("completion_tokens", 0)))
+            prompt = int(data.get("prompt_tokens", 0))
+            completion = int(data.get("completion_tokens", 0))
+            span.set_attribute("llm.token_count.prompt", prompt)
+            span.set_attribute("llm.token_count.completion", completion)
+            span.set_attribute("llm.token_count.total", prompt + completion)
             span.set_attribute("bijou.purpose", str(data.get("purpose", "")))
             if "input" in data:
                 span.set_attribute("input.value", str(data["input"]))
@@ -113,12 +124,20 @@ class OtelSink:
             span.set_attribute("tool.name", tool)
             span.set_attribute("input.value", pending.pop(0))
             span.set_attribute("output.value", str(data.get("preview", "")))
+            if "generate_ms" in data:
+                span.set_attribute("bijou.skills", value(data.get("skills", [])))
+                span.set_attribute("bijou.generate_ms", int(data["generate_ms"]))
+                span.set_attribute(
+                    "bijou.equip_ms",
+                    max(int(data.get("duration_ms", 0)) - int(data["generate_ms"]), 0),
+                )
             if not data.get("ok", True):
                 span.set_status(ot.Status(ot.StatusCode.ERROR))
             span.end(ns(event.at))
         elif event.kind is TraceKind.SKILLS_PICKED:
             parent.set_attribute("bijou.skills", value(data.get("skills", [])))
             parent.set_attribute("bijou.pick_reason", str(data.get("reason", "")))
+            parent.set_attribute("bijou.pick_ms", int(data.get("duration_ms", 0)))
         elif event.kind is TraceKind.STEP_DONE:
             parent.set_attribute("bijou.status", str(data.get("status", "")))
             parent.end(ns(event.at))
@@ -157,7 +176,7 @@ def open_tracer(cfg: Telemetry) -> tuple[OtelSink, Callable[[], None]] | None:
     if not cfg.otlp_endpoint:
         return None
     provider = TracerProvider(
-        resource=Resource.create({"service.name": cfg.service_name}),
+        resource=Resource.create({"service.name": cfg.service_name, PROJECT: cfg.project_name}),
         sampler=TraceIdRatioBased(cfg.sample_ratio),
     )
     exporter = OTLPSpanExporter(endpoint=cfg.otlp_endpoint, timeout=cfg.export_timeout_secs)
