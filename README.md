@@ -92,17 +92,18 @@ The agent starts with the console, and the logs of every compose service that is
 from the start. `i` types to the agent and `enter` sends; while it works its plan, skill picks,
 model and tool calls stream into the middle pane, with a metrics pane under them counting runs,
 model calls, tokens, tools, policy decisions and the skill bank (`m` hides it). `a` and `d` approve or deny an action it is
-holding, `R` starts a new conversation. `j`/`k` move, `enter` starts or stops a unit, `h`/`l`
-change pane, `:` runs any recipe, `/` searches, `?` for help. The status bar shows the agent, the
-services, GPU memory and its holders, the base checkpoint, trained skills, the last run and the
-git SHA. Every line is mirrored to `.bijou/logs/<unit>.log`. The `monitor` units, `nvtop` and
-`htop`, take the whole terminal; quit them to come back, with everything else still running.
+holding, `R` starts a new conversation. `j`/`k` move and `enter` starts or stops the selected
+unit — on a service row that is the compose service itself, whose logs then follow while it runs.
+`h`/`l` change pane, `:` runs any recipe, `/` searches, `?` for help, and `g` or `t` hands the
+whole terminal to nvtop or htop until you quit it. The status bar shows the agent, the base
+checkpoint, trained skills, the last run and the git SHA. Every line a unit prints is mirrored to
+`.bijou/logs/<unit>.log`.
 
 ## Observability
 
 ```bash
-just up observe       # Phoenix :6006, Prometheus :9090, Grafana :3000 (admin/admin)
-just up model         # llama-server :8000, if the chat model is not already running on the host
+just up phoenix prometheus grafana   # traces :6006, metrics :9090, dashboards :3000 (admin/admin)
+just up chat                         # llama-server :8000, unless it already runs on the host
 ```
 
 Set `BIJOU_TELEMETRY__OTLP_ENDPOINT=http://127.0.0.1:6006/v1/traces` in `.env` and every run

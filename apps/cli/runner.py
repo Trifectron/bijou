@@ -75,6 +75,35 @@ class Runner:
             return False
         return True
 
+    async def run_once(self, unit_id: str, args: Sequence[str]) -> None:
+        """Run a short command whose output belongs to a unit, without becoming that unit's own
+        process. Starting a service while its log follower runs is one of these."""
+        cmd = [*self.launcher, *args]
+        self.on_line(unit_id, "meta", "$ " + " ".join(cmd))
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd=self.root,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                start_new_session=True,
+                env=os.environ | {"PYTHONUNBUFFERED": "1"},
+                limit=_LINE_LIMIT,
+            )
+        except OSError as exc:
+            self.on_line(unit_id, "meta", f"could not start: {exc}")
+            return
+        task = asyncio.create_task(self._watch_once(unit_id, proc))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def _watch_once(self, unit_id: str, proc: asyncio.subprocess.Process) -> None:
+        await self._drain(unit_id, proc)
+        code = await proc.wait()
+        if code:
+            self.on_line(unit_id, "meta", f"exited with code {code}")
+
     def stop(self, unit_id: str) -> bool:
         """Send SIGTERM to the unit's process group. False when it is not running."""
         proc = self._procs.get(unit_id)
@@ -110,13 +139,16 @@ class Runner:
             # A progress bar redraws with carriage returns; the last frame is the current one.
             self.on_line(unit_id, stream, text.rsplit("\r", 1)[-1])
 
-    async def _watch(self, unit_id: str, proc: asyncio.subprocess.Process) -> None:
+    async def _drain(self, unit_id: str, proc: asyncio.subprocess.Process) -> None:
         pumps = []
         if proc.stdout is not None:
             pumps.append(self._pump(unit_id, proc.stdout, "out"))
         if proc.stderr is not None:
             pumps.append(self._pump(unit_id, proc.stderr, "err"))
         await asyncio.gather(*pumps)
+
+    async def _watch(self, unit_id: str, proc: asyncio.subprocess.Process) -> None:
+        await self._drain(unit_id, proc)
         code = await proc.wait()
         self._procs.pop(unit_id, None)
         self.on_exit(unit_id, code)

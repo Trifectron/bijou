@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass, replace
@@ -13,12 +14,24 @@ from cli.core.config import Config
 
 @dataclass(frozen=True)
 class Gpu:
-    """One GPU's memory, and the names of the processes holding it."""
+    """One GPU's load and memory, and the names of the processes holding it."""
 
     name: str
     used_mib: int
     total_mib: int
     holders: tuple[str, ...] = ()
+    util: int = 0
+    temp_c: int = 0
+
+
+@dataclass(frozen=True)
+class Machine:
+    """What the metrics pane shows about the box itself."""
+
+    load: float
+    cpus: int
+    mem_used_gib: float
+    mem_total_gib: float
 
 
 @dataclass(frozen=True)
@@ -35,16 +48,31 @@ class Snapshot:
     git: str
     # The compose services that are up, by name.
     running: frozenset[str] = frozenset()
+    machine: Machine | None = None
 
 
 def parse_gpus(csv: str) -> list[Gpu]:
-    """Rows of nvidia-smi name, memory.used, memory.total in csv, noheader, nounits form."""
+    """Rows of nvidia-smi name, utilization.gpu, memory.used, memory.total, temperature.gpu."""
     gpus = []
     for row in csv.strip().splitlines():
         parts = [p.strip() for p in row.split(",")]
-        if len(parts) == 3 and parts[1].isdigit() and parts[2].isdigit():
-            gpus.append(Gpu(parts[0], int(parts[1]), int(parts[2])))
+        if len(parts) == 5 and all(part.isdigit() for part in parts[1:]):
+            used, total = int(parts[2]), int(parts[3])
+            gpus.append(Gpu(parts[0], used, total, util=int(parts[1]), temp_c=int(parts[4])))
     return gpus
+
+
+def machine() -> Machine | None:
+    """Load and memory from the kernel, or None where they cannot be read."""
+    try:
+        fields = {}
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            key, _, rest = line.partition(":")
+            fields[key] = float(rest.split()[0]) / (1024 * 1024)
+        total, free = fields["MemTotal"], fields["MemAvailable"]
+        return Machine(os.getloadavg()[0], os.cpu_count() or 1, max(total - free, 0.0), total)
+    except (OSError, ValueError, KeyError, IndexError):
+        return None
 
 
 def parse_holders(csv: str) -> tuple[str, ...]:
@@ -72,7 +100,8 @@ def gpus() -> tuple[Gpu, ...]:
     if shutil.which("nvidia-smi") is None:
         return ()
     try:
-        found = parse_gpus(_nvidia_smi("--query-gpu=name,memory.used,memory.total"))
+        query = "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu"
+        found = parse_gpus(_nvidia_smi(query))
         holders = parse_holders(_nvidia_smi("--query-compute-apps=pid,process_name"))
     except (subprocess.SubprocessError, OSError):
         return ()
@@ -143,4 +172,5 @@ def snapshot(cfg: Config) -> Snapshot:
         last_run=last_run(cfg.paths.runs),
         git=git_sha(),
         running=compose_running(),
+        machine=machine(),
     )

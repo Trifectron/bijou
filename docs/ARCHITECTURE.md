@@ -229,11 +229,12 @@ evals read.
 
 | What | Runs on | Started by |
 |---|---|---|
-| Chat model | llama-server, OpenAI-compatible, `--jinja --metrics` | the host, or `just up model` |
+| Chat model | llama-server, OpenAI-compatible, `--jinja --metrics` | the host, or `just up chat` |
 | Diffusion model | the engine's own PyTorch sampler, in the agent's process | `just chat`, `just agent` |
-| Traces | Phoenix, OTLP over HTTP | `just up observe` |
-| Metrics | Prometheus, scraping `engine chat` (:9464), llama-server and the GPU exporter | `just up observe` (`just up gpu` for the exporter) |
-| Dashboards | Grafana: Bijou (agent, skill bank, llama-server, GPU) | `just up observe` |
+| Traces | Phoenix, OTLP over HTTP | `just up phoenix` |
+| Metrics | Prometheus, scraping `engine chat` (:9464), llama-server and the GPU exporter | `just up prometheus gpu-exporter` |
+| Dashboards | Grafana: Bijou (agent, skill bank, llama-server, GPU) | `just up grafana` |
+| Live counters | the console's metrics pane, from the agent itself | `just console` |
 
 The diffusion model runs eager, one generation at a time under the bank's lock, with no prefix
 K/V cache, so a phase schedule can switch skills mid-generation.
@@ -272,9 +273,10 @@ shows GPUs, the checkpoint, trained artifacts, which compose services are up, an
 starts `engine chat --jsonl` with the console and talks to it over stdin: the conversation on the
 right, every trace event in the log pane beside it, and a metrics pane that asks the agent for its
 Prometheus registry every `console.metrics_interval_secs`, so the counters Grafana charts are
-readable without leaving the terminal. An interactive unit (`nvtop`, `htop`) is handed
-the terminal while the console is suspended, and the others keep streaming. It links nothing in the
-repo and reads only its own keys from `bijou.toml`.
+readable without leaving the terminal, beside the GPU and the box. A service row starts and stops
+one compose service and follows its logs; `nvtop` and `htop` are handed the whole terminal while
+the console is suspended, and everything else keeps streaming. It links nothing in the repo and
+reads only its own keys from `bijou.toml`.
 
 ## Tech stack
 

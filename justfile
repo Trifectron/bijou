@@ -113,13 +113,17 @@ config *ARGS:
 engine *ARGS:
     uv run engine {{ARGS}}
 
-# ---------- the stack ----------
+# ---------- the services ----------
 
-# Start compose services by profile: observe (phoenix, prometheus, grafana), model (llama-server), gpu
-up +PROFILES="observe":
-    docker compose -f deploy/compose.yml $(printf -- '--profile %s ' {{PROFILES}}) up -d
+# Start compose services by name: chat (llama-server), phoenix, prometheus, grafana, gpu-exporter
+up +SERVICES:
+    docker compose -f deploy/compose.yml --profile '*' up -d {{SERVICES}}
 
-# Stop every compose service
+# Stop compose services by name, or every one of them
+stop *SERVICES:
+    docker compose -f deploy/compose.yml --profile '*' stop {{SERVICES}}
+
+# Stop and remove every compose service
 down:
     docker compose -f deploy/compose.yml --profile '*' down
 

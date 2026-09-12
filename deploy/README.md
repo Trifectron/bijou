@@ -8,8 +8,8 @@ its own process; evals and the console run from source in the repo.
 ## Services, locally
 
 ```bash
-just up model                 # llama-server on :8000 in docker; or run it on the host, see inference/
-just up observe               # Phoenix :6006, Prometheus :9090, Grafana :3000 (admin/admin)
+just up chat                  # llama-server on :8000 in docker; or run it on the host, see inference/
+just up phoenix prometheus grafana   # traces :6006, metrics :9090, dashboards :3000
 just chat                     # the agent in this terminal, the skill bank in its process
 just doctor                   # the services section should read ok
 just agent "What day is it?"  # or just evals
@@ -19,13 +19,19 @@ just down                     # stop every compose service
 `--jinja` makes llama-server apply the model's chat template, which tool calls need; the compose
 service passes it, with `--metrics` for Prometheus. Set
 `BIJOU_TELEMETRY__OTLP_ENDPOINT=http://127.0.0.1:6006/v1/traces` in `.env` to send spans to Phoenix.
-`just up gpu` adds the GPU exporter behind the inference dashboard.
+`just up gpu-exporter` adds the GPU metrics behind the dashboard's GPU row.
 
-| Profile | Services | Ports |
+| Service | What it is | Ports |
 |---|---|---|
-| `model` | `chat` (llama-server, CUDA) | 8000 |
-| `observe` | `phoenix`, `prometheus`, `grafana` | 6006, 4317, 9090, 3000 |
-| `gpu` | `gpu-exporter` | 9835 |
+| `chat` | llama-server, CUDA | 8000 |
+| `phoenix` | traces of every run | 6006, 4317 |
+| `prometheus` | the metrics history | 9090 |
+| `grafana` | dashboards over prometheus (admin/admin) | 3000 |
+| `gpu-exporter` | GPU metrics for prometheus | 9835 |
+
+`just up <names>` starts services, `just stop <names>` stops them, and `just down` removes every
+container. The profiles in `deploy/compose.yml` exist so that a bare `docker compose up` starts
+nothing; the recipes and the console work by service name.
 
 Prometheus and Grafana run on the host network, bound to 127.0.0.1. Prometheus scrapes the metrics
 port `engine chat` serves (:9464), llama-server (:8000) and the GPU exporter (:9835) on the host's

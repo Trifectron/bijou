@@ -49,11 +49,17 @@ def test_catalog_ids_are_unique():
     assert len(ids) == len(set(ids))
 
 
-def test_the_catalog_has_one_agent_and_follows_services_by_name():
+def test_the_catalog_has_one_agent_and_one_row_per_service():
     units = catalog(KNOWN)
     assert [u.name for u in units if u.kind is Kind.AGENT] == ["agent"]
-    follow = {u.service: u.id for u in units if u.kind is Kind.FOLLOW}
-    assert follow["chat"] == "logs chat" and "phoenix" in follow
+    services = {u.service: u.name for u in units if u.kind is Kind.SERVICE}
+    assert services == {
+        "chat": "llama-server",
+        "phoenix": "phoenix",
+        "prometheus": "prometheus",
+        "grafana": "grafana",
+        "gpu-exporter": "gpu-exporter",
+    }
 
 
 @pytest.mark.parametrize(
@@ -111,8 +117,9 @@ def test_log_files_are_named_by_unit_and_appended(tmp_path):
 
 
 def test_nvidia_smi_output_parses():
-    gpus = parse_gpus("NVIDIA GeForce RTX 4050 Laptop GPU, 5479, 6141\n")
+    gpus = parse_gpus("NVIDIA GeForce RTX 4050 Laptop GPU, 37, 5479, 6141, 61\n")
     assert gpus[0].used_mib == 5479 and gpus[0].total_mib == 6141
+    assert gpus[0].util == 37 and gpus[0].temp_c == 61
     assert parse_holders("852888, /app/llama-server\n853038, /app/llama-server\n") == (
         "llama-server",
         "llama-server",
@@ -333,44 +340,71 @@ def test_the_command_line_and_search(cfg, tmp_path):
     asyncio.run(scenario())
 
 
-def _monitor(cfg, tmp_path, script: str):
+def _task(cfg, tmp_path, script: str, launcher=("sh", "-c")):
     from cli.app import ConsoleApp
 
-    unit = Unit(Group.MONITOR, (script,), "hint", Kind.INTERACTIVE)
-    return ConsoleApp(cfg, tmp_path, units=[unit], launcher=("sh", "-c"), probe=_snapshot)
+    unit = Unit(Group.GATE, (script,), "hint")
+    return ConsoleApp(cfg, tmp_path, units=[unit], launcher=launcher, probe=_snapshot)
 
 
-def test_an_interactive_unit_needs_a_terminal_to_take_over(cfg, tmp_path):
+def test_nvtop_needs_a_terminal_the_console_can_hand_over(cfg, tmp_path):
     pytest.importorskip("textual")
-    from cli.app import Status
 
     async def scenario() -> None:
-        app = _monitor(cfg, tmp_path, "exit 0")
+        app = _task(cfg, tmp_path, "true")
         # The headless test driver cannot suspend, which is what a pipe or Textual Web gives too.
         async with app.run_test() as pilot:
-            await pilot.press("enter")
-            assert "terminal" in app.notice
-            assert app.states[0].status is Status.IDLE
+            await pilot.press("g")
+            assert "nvtop" in app.notice and "terminal" in app.notice
             assert not app._handed_over
 
     asyncio.run(scenario())
 
 
-def test_an_interactive_unit_takes_the_terminal_and_reports_its_exit(cfg, tmp_path):
+def test_the_terminal_comes_back_after_the_tool_exits(cfg, tmp_path):
     pytest.importorskip("textual")
-    from cli.app import Status
 
     async def scenario() -> None:
-        app = _monitor(cfg, tmp_path, "exit 3")
+        app = _task(cfg, tmp_path, "true", launcher=("echo",))
         app.suspend = contextlib.nullcontext
         async with app.run_test() as pilot:
-            await pilot.press("enter")
-            assert app.states[0].status is Status.FAILED
-            assert app.states[0].code == 3
-            assert not app.runner.owns("exit 3")
+            await pilot.press("t")
+            assert app.notice == ""
             assert not app._handed_over
 
     asyncio.run(scenario())
+
+
+def test_a_service_row_starts_and_stops_that_service(cfg, tmp_path):
+    pytest.importorskip("textual")
+    from dataclasses import replace
+
+    from cli.app import ConsoleApp
+
+    running: set[str] = set()
+
+    def probe(config):
+        return replace(_snapshot(config), running=frozenset(running))
+
+    async def scenario() -> None:
+        unit = Unit(Group.SERVICES, ("logs", "chat"), "hint", Kind.SERVICE, "llama-server", "chat")
+        app = ConsoleApp(cfg, tmp_path, units=[unit], launcher=("echo",), probe=probe)
+        async with app.run_test() as pilot:
+            await pilot.press("enter")
+            await _until(pilot, lambda: "up chat" in _texts(app))
+            assert "starting llama-server" in app.notice
+
+            # Once it is up, its logs are followed without asking, and enter stops the service.
+            running.add("chat")
+            await _until(pilot, lambda: "logs chat" in _texts(app))
+            await pilot.press("enter")
+            await _until(pilot, lambda: "stop chat" in _texts(app))
+
+    asyncio.run(scenario())
+
+
+def _texts(app):
+    return [line.text for line in app.states[0].logs.window(0, 60)]
 
 
 def test_the_metrics_pane_reads_counters_and_sparks_the_rates():

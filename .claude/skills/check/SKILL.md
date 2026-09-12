@@ -19,4 +19,4 @@ A layering failure means either the import is wrong or the rule changed. If the 
 the contracts in `pyproject.toml` and `docs/ARCHITECTURE.md` in the same commit. Never widen a
 contract to make a red build green.
 
-`just test-gpu` is separate and needs a GPU and a base checkpoint. It is not part of the gate.
+`just test gpu` is separate and needs a GPU and a base checkpoint. It is not part of the gate.

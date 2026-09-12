@@ -9,7 +9,7 @@ evidence about adapters.
 
 ### 0. Parity and plumbing
 
-- [ ] Base checkpoints pulled and `just test-gpu` green
+- [ ] Base checkpoints pulled and `just test gpu` green
 
 Until parity holds, every downstream number is uninterpretable.
 

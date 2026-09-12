@@ -84,11 +84,15 @@ class Meters:
         count = self.total(f"{histogram}_count")
         return f"{self.total(f'{histogram}_sum') / count:.1f}s" if count else ""
 
-    def render(self, width: int) -> Text:
-        """One line per thing the agent does, with a sparkline where a rate means something."""
+    def render(self, width: int, machine: Sequence[str] = ()) -> Text:
+        """One line per thing the agent does, with a sparkline where a rate means something.
+
+        machine holds the GPU and box rows, shown down the right of the pane.
+        """
         if not self.latest:
             return Text("waiting for the agent", style="dim")
-        bars = max(min(width - 52, 40), 8)
+        column = max(width - 34, 30) if machine else width
+        bars = max(min(column - 52, 40), 8)
         out = Text(no_wrap=True, overflow="ellipsis")
         runs, tokens = (
             self.split("bijou_agent_runs_total", "status"),
@@ -132,13 +136,16 @@ class Meters:
                 self.mean("bijou_bank_generation_seconds"),
             ),
         ]
-        for name, total, detail, tail in rows:
+        for index, (name, total, detail, tail) in enumerate(rows):
             if out.plain:
                 out.append("\n")
-            out.append(f"{name:<7}", "bold")
-            out.append(f"{total:>6}  ")
-            out.append(f"{detail:<34}", "dim" if not detail else "")
-            out.append(tail, "cyan" if tail and tail[0] in BARS else "dim")
+            line = Text.assemble((f"{name:<7}", "bold"), f"{total:>6}  ")
+            line.append(f"{detail:<34}", "dim" if not detail else "")
+            line.append(tail, "cyan" if tail and tail[0] in BARS else "dim")
+            line.truncate(column - 2, pad=True)
+            out.append_text(line)
+            if index < len(machine):
+                out.append(machine[index], "dim")
         return out
 
     def _spark(self, name: str, width: int) -> str:

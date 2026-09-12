@@ -77,7 +77,7 @@ STREAM_STYLES: dict[Stream, str] = {"out": "", "err": "", "meta": "cyan"}
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 HINTS = (
-    "i chat  j/k move  ⏎ start/stop  x stop  r restart  h/l panes  m metrics  / search  "
+    "i chat  j/k move  ⏎ start/stop  h/l panes  m metrics  g nvtop  t htop  / search  "
     ": command  ? help  q quit"
 )
 
@@ -86,9 +86,10 @@ HELP = """keys
   a  d                       approve or deny the action the agent is waiting on
   R                          start a new conversation
   m                          show or hide the metrics pane
+  g  t                       hand the terminal to nvtop or htop until you quit it
   j k  gg G  ctrl+d ctrl+u   move, or scroll the focused pane; G on logs resumes following
-  enter  s                   start or stop the selected unit
-                             a monitor unit takes the terminal until you quit it
+  enter  s                   start or stop the selected unit; a service row starts or stops
+                             that compose service, and its logs follow while it runs
   x  r                       stop, restart
   h  l  tab                  focus units, logs, chat
   /  then n  N               search the selected unit's logs
@@ -101,7 +102,8 @@ commands
   :start <unit>  :stop <unit>  :restart <unit>  :clear  :help  :q
   anything else runs as a just recipe, e.g. :skills train json_extract
 
-the agent starts with the console, and each compose service that is up has its logs followed.
+the agent starts with the console, and each compose service that is up has its logs followed;
+x detaches a follower without stopping the service.
 every line a unit prints is also appended to {log_dir}/<unit>.log
 """
 
@@ -234,7 +236,7 @@ class ConsoleApp(App[None]):
         self._running_services = running
         for tracked in self.states:
             unit = tracked.unit
-            followable = unit.kind is Kind.FOLLOW and unit.service in came_up
+            followable = unit.kind is Kind.SERVICE and unit.service in came_up
             if followable and not self.runner.owns(unit.id):
                 await self._start(tracked)
 
@@ -337,6 +339,10 @@ class ConsoleApp(App[None]):
             await self._new_conversation()
         elif char == "m":
             self.show_meters = not self.show_meters
+        elif char == "g":
+            await self._take_terminal(("nvtop",))
+        elif char == "t":
+            await self._take_terminal(("htop",))
         elif char == "j" or key == "down":
             self._move(1)
         elif char == "k" or key == "up":
@@ -527,16 +533,24 @@ class ConsoleApp(App[None]):
     # ---------- control ----------
 
     async def _toggle(self, tracked: UnitState) -> None:
-        if self.runner.owns(tracked.unit.id):
+        if tracked.unit.kind is Kind.SERVICE:
+            await self._service(tracked)
+        elif self.runner.owns(tracked.unit.id):
             self._stop(tracked)
         else:
             await self._start(tracked)
 
+    async def _service(self, tracked: UnitState) -> None:
+        """Start or stop the compose service this unit is. Its logs follow while it runs."""
+        service = tracked.unit.service
+        up = self.snap is not None and service in self.snap.running
+        if up and self.runner.owns(tracked.unit.id):
+            self.runner.stop(tracked.unit.id)
+        await self.runner.run_once(tracked.unit.id, ("stop" if up else "up", service))
+        self.notice = f"{'stopping' if up else 'starting'} {tracked.unit.name}"
+
     async def _start(self, tracked: UnitState) -> None:
         unit_id = tracked.unit.id
-        if tracked.unit.kind is Kind.INTERACTIVE:
-            await self._hand_over(tracked)
-            return
         if self.runner.owns(unit_id):
             self.notice = f"{tracked.unit.name} is already running"
             return
@@ -556,30 +570,24 @@ class ConsoleApp(App[None]):
         self.notice = f"started {tracked.unit.name}"
         self._dirty = True
 
-    async def _hand_over(self, tracked: UnitState) -> None:
-        """Run an interactive unit on the terminal itself, the console suspended until it exits.
+    async def _take_terminal(self, args: Sequence[str]) -> None:
+        """Hand the whole terminal to a full-screen tool until it exits.
 
-        Painting is held meanwhile; the runner's tasks keep reading every other unit.
+        Painting is held meanwhile; the runner's tasks keep reading every unit.
         """
-        unit_id = tracked.unit.id
-        cmd = [*self.runner.launcher, *tracked.unit.args]
+        cmd = [*self.runner.launcher, *args]
         try:
             with self.suspend():
                 self._handed_over = True
-                tracked.status, tracked.code = Status.RUNNING, None
-                tracked.started, tracked.ended = time.monotonic(), None
-                self._on_line(unit_id, "meta", "$ " + " ".join(cmd))
                 outcome = await self._foreground(cmd)
         except SuspendNotSupported:
-            self.notice = f"{unit_id} needs a terminal the console can hand over"
+            self.notice = f"{args[0]} needs a terminal the console can hand over"
             return
         finally:
             self._handed_over = False
             self._dirty = True
         if isinstance(outcome, OSError):
-            self._failed_to_start(tracked, outcome)
-        else:
-            self._on_exit(unit_id, outcome)
+            self.notice = f"could not start {args[0]}: {outcome}"
 
     async def _foreground(self, cmd: Sequence[str]) -> int | OSError:
         """Run cmd attached to the terminal. A spawn error is returned rather than raised, so the
@@ -692,24 +700,7 @@ class ConsoleApp(App[None]):
         if snap is None:
             text.append("  reading status...", "dim")
         else:
-            for tracked in self.states:
-                if tracked.unit.kind is Kind.FOLLOW:
-                    alive = tracked.unit.service in snap.running
-                    text.append("  ● " if alive else "  ○ ", "green" if alive else "dim")
-                    text.append(tracked.unit.name, "" if alive else "dim")
-            for gpu in snap.gpus:
-                share = gpu.used_mib / gpu.total_mib if gpu.total_mib else 0.0
-                style = "red" if share > 0.8 else "yellow" if share > 0.5 else "green"
-                text.append("  ● ", style)
-                text.append(f"gpu {gpu.used_mib / 1024:.1f}/{gpu.total_mib / 1024:.1f}G")
-                if gpu.holders:
-                    counts: dict[str, int] = {}
-                    for name in gpu.holders:
-                        counts[name] = counts.get(name, 0) + 1
-                    held = ", ".join(f"{c}x {n}" if c > 1 else n for n, c in counts.items())
-                    text.append(f" ({held})", "dim")
-            if not snap.gpus:
-                text.append("  ○ no gpu", "dim")
+            # The services have a light each in the sidebar, and the GPU a row in the metrics pane.
             if not snap.checkpoint:
                 text.append("  ● random weights", "yellow")
             elif snap.checkpoint_present:
@@ -734,6 +725,10 @@ class ConsoleApp(App[None]):
                 group = tracked.unit.group
                 rows.append((Text(str(group), style="bold dim"), None))
             glyph, style = GLYPHS[tracked.status]
+            if tracked.unit.kind is Kind.SERVICE:
+                # A service's light is the service itself, not its log follower.
+                up = self.snap is not None and tracked.unit.service in self.snap.running
+                glyph, style = ("●", "green") if up else ("○", "dim")
             name_style = "reverse" if i == self.selected else ""
             rows.append((Text.assemble((f" {glyph} ", style), (tracked.unit.name, name_style)), i))
         selected_row = next(r for r, (_, i) in enumerate(rows) if i == self.selected)
@@ -781,8 +776,28 @@ class ConsoleApp(App[None]):
         if not self.show_meters:
             return
         meters.border_title = "metrics · this agent, since it started"
-        meters.border_subtitle = "m hides"
-        meters.update(self.meters.render(max(meters.content_size.width, 20)))
+        meters.border_subtitle = "m hides · g nvtop · t htop"
+        width = max(meters.content_size.width, 20)
+        meters.update(self.meters.render(width, self._machine_rows()))
+
+    def _machine_rows(self) -> list[str]:
+        """The GPU and the box, the numbers nvtop and htop are opened for."""
+        snap = self.snap
+        if snap is None:
+            return []
+        rows = []
+        for gpu in snap.gpus:
+            used, total = gpu.used_mib / 1024, gpu.total_mib / 1024
+            rows.append(f"gpu   {gpu.util:>3}%  {used:.1f}/{total:.1f}G  {gpu.temp_c}°C")
+            if gpu.holders:
+                rows.append(f"      {', '.join(dict.fromkeys(gpu.holders))}")
+        if not snap.gpus:
+            rows.append("gpu   none")
+        if snap.machine is not None:
+            box = snap.machine
+            rows.append(f"load  {box.load:.2f} over {box.cpus} cpus")
+            rows.append(f"mem   {box.mem_used_gib:.1f}/{box.mem_total_gib:.1f}G")
+        return rows
 
     def _paint_chat(self, transcript: Static, ask: Static) -> None:
         t = self.transcript

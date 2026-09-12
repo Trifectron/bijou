@@ -14,7 +14,7 @@ llama-server -hf Qwen/Qwen3-4B-GGUF:Q4_K_M --host 127.0.0.1 --port 8000 \
 ## In compose
 
 ```bash
-docker compose -f deploy/compose.yml --profile model up -d
+just up chat
 ```
 
 GGUFs download on first run into the `modelcache` volume. Override with `BIJOU_CHAT_GGUF`,
@@ -40,7 +40,7 @@ raise `-c` only with headroom, and lower `-ngl` to spill layers to CPU.
 ## Metrics
 
 ```bash
-docker compose -f deploy/compose.yml --profile observe --profile gpu up -d
+just up phoenix prometheus grafana gpu-exporter
 ```
 
 Grafana at http://localhost:3000 (admin/admin) with the `Bijou` dashboard (agent, skill bank,
