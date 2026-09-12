@@ -7,9 +7,11 @@ Prometheus metrics on telemetry.metrics_port for as long as it runs.
 With --jsonl, one JSON object per line each way, and nothing else is written to stdout:
 
   in   {"op": "ask", "text": ...}  {"op": "confirm", "approve": true}  {"op": "new"}
+       {"op": "stats"}
   out  {"type": "ready", "metrics": url or null}
        {"type": "event", "event": TraceEvent}   each event of a turn, as it happens
        {"type": "result", "result": RunResult}  a turn's result, without its events
+       {"type": "stats", "stats": {name: number}}   every metric this agent has counted
        {"type": "error", "message": ...}        a line that could not be acted on
 """
 
@@ -28,7 +30,7 @@ from engine.commands.app import app, console, err, fail, settings
 from engine.core.config import Telemetry
 from engine.core.types.agent import RunResult, TraceEvent
 from engine.core.types.errors import ConfirmationError, EngineError
-from engine.telemetry.metrics import serve_metrics
+from engine.telemetry.metrics import serve_metrics, stats
 from engine.wiring import Agent, open_agent
 
 Write = Callable[[dict[str, Any]], None]
@@ -73,12 +75,12 @@ async def converse(convo: Conversation, lines: AsyncIterator[str], write: Write)
     """Act on each line until the input ends. A line that cannot be acted on gets an error line."""
     async for line in lines:
         try:
-            result = await _act(convo, _message(line))
+            answer = await _act(convo, _message(line))
         except (EngineError, ValueError) as exc:
             write({"type": "error", "message": str(exc)})
             continue
-        if result is not None:
-            write({"type": "result", "result": result.model_dump(mode="json", exclude={"events"})})
+        if answer is not None:
+            write(answer)
 
 
 def _message(line: str) -> dict[str, Any]:
@@ -89,19 +91,27 @@ def _message(line: str) -> dict[str, Any]:
     return message
 
 
-async def _act(convo: Conversation, message: dict[str, Any]) -> RunResult | None:
+async def _act(convo: Conversation, message: dict[str, Any]) -> dict[str, Any] | None:
+    """What to write back for one message, or None when there is nothing to say."""
     op = message.get("op")
     if op == "ask":
         text = message.get("text")
         if not isinstance(text, str) or not text.strip():
             raise ValueError("ask needs text")
-        return await convo.ask(text)
+        return _result(await convo.ask(text))
     if op == "confirm":
-        return await convo.confirm(bool(message.get("approve", False)))
+        return _result(await convo.confirm(bool(message.get("approve", False))))
     if op == "new":
         convo.new()
         return None
+    if op == "stats":
+        return {"type": "stats", "stats": stats(convo.agent.registry)}
     raise ValueError(f"unknown op {op!r}")
+
+
+def _result(result: RunResult) -> dict[str, Any]:
+    """A turn's result. Its events went out as they happened, so they are left off."""
+    return {"type": "result", "result": result.model_dump(mode="json", exclude={"events"})}
 
 
 async def _stdin() -> AsyncIterator[str]:

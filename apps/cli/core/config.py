@@ -51,6 +51,7 @@ class Console(BaseModel):
     log_lines: int = 5000
     log_dir: Path = Path(".bijou/logs")
     status_interval_secs: float = 5.0
+    metrics_interval_secs: float = 2.0
 
     @model_validator(mode="after")
     def _check(self) -> Console:
@@ -58,6 +59,8 @@ class Console(BaseModel):
             raise ConfigError("console.log_lines must be positive")
         if self.status_interval_secs <= 0:
             raise ConfigError("console.status_interval_secs must be positive")
+        if self.metrics_interval_secs <= 0:
+            raise ConfigError("console.metrics_interval_secs must be positive")
         return self
 
 

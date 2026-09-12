@@ -29,6 +29,7 @@ from textual.widgets import Static
 from cli.chat import Transcript, decode
 from cli.core.config import Config, ConfigError
 from cli.logs import LogBuffer, LogLine, LogWriter, Stream
+from cli.meters import Meters
 from cli.runner import Runner
 from cli.status import Snapshot, snapshot
 from cli.units import Command, Kind, Unit, adhoc, catalog, parse_command
@@ -76,14 +77,15 @@ STREAM_STYLES: dict[Stream, str] = {"out": "", "err": "", "meta": "cyan"}
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 HINTS = (
-    "i chat  j/k move  ⏎ start/stop  x stop  r restart  h/l panes  / search  : command  "
-    "? help  q quit"
+    "i chat  j/k move  ⏎ start/stop  x stop  r restart  h/l panes  m metrics  / search  "
+    ": command  ? help  q quit"
 )
 
 HELP = """keys
   i                          type to the agent; enter sends, esc leaves
   a  d                       approve or deny the action the agent is waiting on
   R                          start a new conversation
+  m                          show or hide the metrics pane
   j k  gg G  ctrl+d ctrl+u   move, or scroll the focused pane; G on logs resumes following
   enter  s                   start or stop the selected unit
                              a monitor unit takes the terminal until you quit it
@@ -142,7 +144,9 @@ class ConsoleApp(App[None]):
     #status, #footer { height: 1; padding: 0 1; }
     #body { height: 1fr; }
     #units { width: 34; height: 100%; border: round grey; }
-    #logs { width: 1fr; height: 100%; border: round grey; }
+    #logscol { width: 1fr; height: 100%; }
+    #logs { height: 1fr; border: round grey; }
+    #meters { height: 10; border: round grey; padding: 0 1; }
     #chat { width: 1fr; height: 100%; }
     #transcript { height: 1fr; border: round grey; padding: 0 1; }
     #ask { height: 3; border: round grey; padding: 0 1; }
@@ -164,6 +168,8 @@ class ConsoleApp(App[None]):
         self.states = [UnitState(u, LogBuffer(cfg.console.log_lines)) for u in chosen]
         self.agent = next((s for s in self.states if s.unit.kind is Kind.AGENT), None)
         self.transcript = Transcript()
+        self.meters = Meters()
+        self.show_meters = True
         self.selected = 0
         self.pane = Pane.UNITS
         self.key_mode = Mode.NORMAL
@@ -190,7 +196,9 @@ class ConsoleApp(App[None]):
         yield Static(id="status")
         with Horizontal(id="body"):
             yield Static(id="units")
-            yield Static(id="logs")
+            with Vertical(id="logscol"):
+                yield Static(id="logs")
+                yield Static(id="meters")
             with Vertical(id="chat"):
                 yield Static(id="transcript")
                 yield Static(id="ask")
@@ -200,6 +208,7 @@ class ConsoleApp(App[None]):
         self.set_interval(0.1, self._refresh_if_dirty)
         self.set_interval(1.0, self._touch)
         self.set_interval(self.cfg.console.status_interval_secs, self._poll)
+        self.set_interval(self.cfg.console.metrics_interval_secs, self._ask_stats)
         self.run_worker(self._poll(), exclusive=True, group="status")
         if self.agent is not None:
             await self._start(self.agent)
@@ -208,8 +217,9 @@ class ConsoleApp(App[None]):
     def on_resize(self) -> None:
         self._dirty = True
 
-    def on_unmount(self) -> None:
+    async def on_unmount(self) -> None:
         self.runner.shutdown()
+        await self.runner.drain()
         self.writer.close()
 
     async def _poll(self) -> None:
@@ -227,6 +237,14 @@ class ConsoleApp(App[None]):
             followable = unit.kind is Kind.FOLLOW and unit.service in came_up
             if followable and not self.runner.owns(unit.id):
                 await self._start(tracked)
+
+    async def _ask_stats(self) -> None:
+        """Ask the agent what it has counted, for the metrics pane."""
+        agent = self.agent
+        if agent is None or not self.show_meters or not self.transcript.ready:
+            return
+        if self.runner.owns(agent.unit.id):
+            await self.runner.send(agent.unit.id, json.dumps({"op": "stats"}))
 
     def _touch(self) -> None:
         self._dirty = True
@@ -253,6 +271,10 @@ class ConsoleApp(App[None]):
             message = decode(text)
             if message is not None:
                 self._dirty = True
+                if message.get("type") == "stats":
+                    counted = message.get("stats")
+                    self.meters.update(counted if isinstance(counted, dict) else {})
+                    return
                 logged = self.transcript.apply(message)
                 if logged is None:
                     return
@@ -313,6 +335,8 @@ class ConsoleApp(App[None]):
             await self._confirm(approve=char == "a")
         elif char == "R":
             await self._new_conversation()
+        elif char == "m":
+            self.show_meters = not self.show_meters
         elif char == "j" or key == "down":
             self._move(1)
         elif char == "k" or key == "up":
@@ -634,6 +658,7 @@ class ConsoleApp(App[None]):
     def _paint(self) -> None:
         units = self.query_one("#units", Static)
         logs = self.query_one("#logs", Static)
+        meters = self.query_one("#meters", Static)
         transcript = self.query_one("#transcript", Static)
         ask = self.query_one("#ask", Static)
         units.set_class(self.pane is Pane.UNITS, "focused")
@@ -644,6 +669,7 @@ class ConsoleApp(App[None]):
         units.border_title = "units"
         units.update(self._units_text(max(units.content_size.height, 1)))
         self._paint_logs(logs)
+        self._paint_meters(meters)
         self._paint_chat(transcript, ask)
         self.query_one("#footer", Static).update(self._footer_text())
 
@@ -749,6 +775,14 @@ class ConsoleApp(App[None]):
         if not len(tracked.logs):
             body = Text("press enter to start this unit, ? for help", style="dim")
         logs.update(body)
+
+    def _paint_meters(self, meters: Static) -> None:
+        meters.display = self.show_meters
+        if not self.show_meters:
+            return
+        meters.border_title = "metrics · this agent, since it started"
+        meters.border_subtitle = "m hides"
+        meters.update(self.meters.render(max(meters.content_size.width, 20)))
 
     def _paint_chat(self, transcript: Static, ask: Static) -> None:
         t = self.transcript

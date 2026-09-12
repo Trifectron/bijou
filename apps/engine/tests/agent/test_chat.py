@@ -81,6 +81,16 @@ async def test_a_bad_line_gets_an_error_and_the_conversation_goes_on(cfg):
     assert out[-1]["result"]["answer"] == "fine"
 
 
+async def test_stats_answers_with_what_the_agent_has_counted(cfg):
+    out = []
+    convo = Conversation(agent_for(cfg, [text("done")]), "local")
+    await converse(convo, lines({"op": "ask", "text": "hi"}, {"op": "stats"}), out.append)
+    counted = out[-1]
+    assert counted["type"] == "stats"
+    assert counted["stats"]["bijou_agent_runs_total{status=answered}"] == 1
+    assert counted["stats"]["bijou_agent_run_seconds_count"] == 1
+
+
 def test_only_protocol_lines_reach_stdout(monkeypatch):
     out, printed = io.StringIO(), io.StringIO()
     monkeypatch.setattr(sys, "stdout", out)

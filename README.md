@@ -90,7 +90,8 @@ just console          # or: just cli
 Units on the left, the selected unit's output in the middle, the chat with the agent on the right.
 The agent starts with the console, and the logs of every compose service that is up are followed
 from the start. `i` types to the agent and `enter` sends; while it works its plan, skill picks,
-model and tool calls stream into the middle pane. `a` and `d` approve or deny an action it is
+model and tool calls stream into the middle pane, with a metrics pane under them counting runs,
+model calls, tokens, tools, policy decisions and the skill bank (`m` hides it). `a` and `d` approve or deny an action it is
 holding, `R` starts a new conversation. `j`/`k` move, `enter` starts or stops a unit, `h`/`l`
 change pane, `:` runs any recipe, `/` searches, `?` for help. The status bar shows the agent, the
 services, GPU memory and its holders, the base checkpoint, trained skills, the last run and the

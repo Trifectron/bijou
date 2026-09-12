@@ -270,7 +270,9 @@ The composition matrix in the engine is the research eval. Agent evals say nothi
 `apps/cli` lists every `just` recipe, runs each in its own process group, streams its output, and
 shows GPUs, the checkpoint, trained artifacts, which compose services are up, and the last run. It
 starts `engine chat --jsonl` with the console and talks to it over stdin: the conversation on the
-right, every trace event in the log pane beside it. An interactive unit (`nvtop`, `htop`) is handed
+right, every trace event in the log pane beside it, and a metrics pane that asks the agent for its
+Prometheus registry every `console.metrics_interval_secs`, so the counters Grafana charts are
+readable without leaving the terminal. An interactive unit (`nvtop`, `htop`) is handed
 the terminal while the console is suspended, and the others keep streaming. It links nothing in the
 repo and reads only its own keys from `bijou.toml`.
 

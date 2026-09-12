@@ -13,6 +13,7 @@ import pytest
 from cli.chat import Transcript, Turn, decode
 from cli.core.config import Config
 from cli.logs import LogBuffer, LogLine, LogWriter, log_name
+from cli.meters import Meters, spark
 from cli.runner import Runner
 from cli.status import Snapshot, last_run, parse_gpus, parse_holders
 from cli.units import Command, Group, Kind, Unit, catalog, parse_command
@@ -255,7 +256,10 @@ def test_enter_runs_the_selected_unit_and_streams_its_output(cfg, tmp_path):
         app = _app(cfg, tmp_path, "echo first", "echo second")
         async with app.run_test(size=(100, 30)) as pilot:
             assert app.query_one("#units").size.height > 20
-            assert app.query_one("#logs").size.height > 20
+            # The logs pane shares its column with the metrics pane.
+            assert app.query_one("#logs").size.height > 10
+            # Ten rows in the CSS, less its border.
+            assert app.query_one("#meters").size.height == 8
             await pilot.press("j", "enter")
             await _until(pilot, lambda: app.states[1].status is Status.OK)
             texts = [line.text for line in app.states[1].logs.window(0, 10)]
@@ -369,6 +373,29 @@ def test_an_interactive_unit_takes_the_terminal_and_reports_its_exit(cfg, tmp_pa
     asyncio.run(scenario())
 
 
+def test_the_metrics_pane_reads_counters_and_sparks_the_rates():
+    assert spark([0, 1, 2], 10) == "▁▅█"
+    assert spark([], 5) == ""
+    m = Meters()
+    counted = {
+        "bijou_agent_runs_total{status=answered}": 1.0,
+        "bijou_agent_tokens_total{kind=prompt}": 100.0,
+        "bijou_agent_model_call_seconds_sum": 2.0,
+        "bijou_agent_model_call_seconds_count": 2.0,
+    }
+    m.update(counted)
+    # One look is a total, not a rate; the sparklines start on the second.
+    assert not m.rates
+    m.update(counted | {"bijou_agent_runs_total{status=answered}": 3.0})
+    assert list(m.rates["bijou_agent_runs_total"]) == [2.0]
+    assert m.total("bijou_agent_runs_total") == 3.0
+    assert m.split("bijou_agent_tokens_total", "kind") == {"prompt": 100.0}
+    assert m.mean("bijou_agent_model_call_seconds") == "1.0s"
+    body = m.render(80).plain
+    assert "answered 3" in body and "prompt 100" in body
+    assert Meters().render(80).plain == "waiting for the agent"
+
+
 # Speaks the engine chat --jsonl protocol: an answer, or a held action and then its outcome.
 FAKE_AGENT = """
 answer='{"type":"result","result":{"session_id":"s1","status":"answered","answer":"63",
@@ -378,9 +405,11 @@ held='{"type":"result","result":{"session_id":"s1","status":"awaiting_confirmati
 posted='{"type":"result","result":{"session_id":"s1","status":"answered","answer":"posted",
 "steps":[],"usage":{},"duration_ms":10}}'
 event='{"type":"event","event":{"kind":"planned","session_id":"s1","step_id":"","data":{}}}'
+counted='{"type":"stats","stats":{"bijou_agent_runs_total{status=answered}":2}}'
 echo '{"type":"ready","metrics":null}'
 while read -r line; do
   case "$line" in
+    *stats*) echo $counted ;;
     *confirm*) echo $posted ;;
     *post*) echo $event; echo $held ;;
     *) echo $event; echo $answer ;;
@@ -407,6 +436,13 @@ def test_the_agent_starts_with_the_console_and_answers_in_the_chat(cfg, tmp_path
             ]
             assert "1 step" in app.transcript.turns[-1].meta
             assert "planned" in [line.text for line in app.states[0].logs.window(0, 50)]
+
+            # The metrics pane asks for the counters itself, and they are not log lines.
+            await _until(pilot, lambda: app.meters.latest)
+            assert app.meters.total("bijou_agent_runs_total") == 2
+            lines = app.states[0].logs.window(0, 50)
+            streamed = [line.text for line in lines if line.stream != "meta"]
+            assert all(t.startswith(("ready", "planned", "result")) for t in streamed)
 
             await pilot.press(*"post", "enter")
             await _until(pilot, lambda: app.transcript.pending is not None)

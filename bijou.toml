@@ -62,6 +62,7 @@ seed = 2
 log_lines = 5000
 log_dir = ".bijou/logs"
 status_interval_secs = 5.0
+metrics_interval_secs = 2.0
 
 # ---------------------------------------------------------------- the skill bank
 # Loaded in the agent's process. A request for more positions than this is refused.

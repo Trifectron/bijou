@@ -43,6 +43,20 @@ def serve_metrics(
     return server.server_port, stop
 
 
+def stats(registry: CollectorRegistry) -> dict[str, float]:
+    """Every sample in the registry, flattened to name{label=value,...} -> number.
+
+    Counters are totals since the process started, and each histogram carries its _sum and
+    _count; whoever shows them decides what a rate or a mean is.
+    """
+    out: dict[str, float] = {}
+    for metric in registry.collect():
+        for sample in metric.samples:
+            labels = ",".join(f"{k}={v}" for k, v in sorted(sample.labels.items()))
+            out[f"{sample.name}{{{labels}}}" if labels else sample.name] = sample.value
+    return out
+
+
 def skills_label(skills: list[str]) -> str:
     """One label value for a set of skills: none, or the names sorted and joined by a plus."""
     return "+".join(sorted(skills)) or "none"

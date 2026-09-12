@@ -80,6 +80,10 @@ class Runner:
         proc = self._procs.get(unit_id)
         if proc is None:
             return False
+        if proc.stdin is not None:
+            # Closed here, or its transport is finalised after the loop has gone.
+            with contextlib.suppress(OSError, RuntimeError):
+                proc.stdin.close()
         with contextlib.suppress(ProcessLookupError):
             os.killpg(proc.pid, signal.SIGTERM)
         return True
@@ -88,6 +92,11 @@ class Runner:
         """Stop every unit still running."""
         for unit_id in list(self._procs):
             self.stop(unit_id)
+
+    async def drain(self, timeout: float = 2.0) -> None:
+        """Wait for the units to end, so their pipes close before the loop does."""
+        if self._tasks:
+            await asyncio.wait(set(self._tasks), timeout=timeout)
 
     async def _pump(self, unit_id: str, reader: asyncio.StreamReader, stream: Stream) -> None:
         while True:
