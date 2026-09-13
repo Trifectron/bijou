@@ -28,6 +28,9 @@ User -> planner (LLM) -> subagent per step
                            -> collect (teacher LLM) -> skills train -> the bank
 ```
 
+<img width="2372" height="1340" alt="image" src="https://github.com/user-attachments/assets/4472b03d-2fb4-4a05-8eb8-26c81a70d5bb" />
+
+
 Alongside the product sits a research track with kill criteria: do adapters beat a tuned prompt,
 do they compose, and does routing them by denoising phase beat leaving them on.
 `docs/ROADMAP.md` has both tracks; `docs/ARCHITECTURE.md` explains the split between the LLM and
