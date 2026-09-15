@@ -28,7 +28,7 @@ User -> planner (LLM) -> subagent per step
                            -> collect (teacher LLM) -> skills train -> the bank
 ```
 
-<img width="2372" height="1340" alt="image" src="https://github.com/user-attachments/assets/4472b03d-2fb4-4a05-8eb8-26c81a70d5bb" />
+<img width="1968" height="1184" alt="image" src="https://github.com/user-attachments/assets/239e227f-6255-4e83-a0ca-0b210c60029d" />
 
 
 Alongside the product sits a research track with kill criteria: do adapters beat a tuned prompt,
