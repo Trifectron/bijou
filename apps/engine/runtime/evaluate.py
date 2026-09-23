@@ -11,26 +11,22 @@ from collections.abc import Callable
 
 from engine.adapters import io as adapter_io
 from engine.adapters.lora import inject
-from engine.backends.nanodiff import NanoDiffBackend
+from engine.backends import create
 from engine.core.config import Config
 from engine.core.determinism import seed_everything
+from engine.core.protocols import Backend
 from engine.core.types.diffusion import AdapterState, GenerationRequest, Sample, Score, SkillReport
 from engine.routing.phase import PhaseRouter, PhaseSchedule
 from engine.skills import load as load_skill
 
-BackendFactory = Callable[[Config], NanoDiffBackend]
-
-
-def default_backend(cfg: Config) -> NanoDiffBackend:
-    """The configured backend."""
-    return NanoDiffBackend(cfg)
+BackendFactory = Callable[[Config], Backend]
 
 
 def prepare(
-    cfg: Config, adapters: list[str], backend: NanoDiffBackend | None = None
-) -> tuple[NanoDiffBackend, AdapterState]:
+    cfg: Config, adapters: list[str], backend: Backend | None = None
+) -> tuple[Backend, AdapterState]:
     """Build a model with the named adapters attached but nothing active."""
-    backend = backend or NanoDiffBackend(cfg)
+    backend = backend or create(cfg)
     model = backend.build()
     state = inject(model, cfg.adapter.targets)
     for name in adapters:
@@ -40,7 +36,7 @@ def prepare(
 
 def score_condition(
     cfg: Config,
-    backend: NanoDiffBackend,
+    backend: Backend,
     state: AdapterState,
     skill_name: str,
     condition: str,

@@ -11,9 +11,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 
-from engine.backends.nanodiff import NanoDiffBackend
 from engine.core.config import Config
-from engine.core.protocols import Skill
+from engine.core.protocols import Backend, Skill
 from engine.core.types.diffusion import AdapterState, Sample
 from engine.routing.phase import PhaseSchedule
 from engine.runtime.evaluate import score_condition
@@ -59,9 +58,7 @@ def prompted(
     return [render(s, instruction, demos) for s in samples]
 
 
-def tune(
-    cfg: Config, backend: NanoDiffBackend, state: AdapterState, skill_name: str
-) -> PromptChoice:
+def tune(cfg: Config, backend: Backend, state: AdapterState, skill_name: str) -> PromptChoice:
     """The candidate with the best dev pass rate, then mean value, then fewest shots."""
     skill = load_skill(skill_name, cfg.paths.data)
     dev = skill.generate(cfg.prompting.dev_samples, cfg.prompting.seed, split="dev")

@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, SecretStr, model_validator
 from engine.core.types.errors import ConfigError
 
 Condition = Literal["adapters", "tuned-prompt", "full-finetune"]
+BackendName = Literal["nanodiff"]
 
 
 class Paths(BaseModel):
@@ -23,13 +24,13 @@ class Paths(BaseModel):
 
 
 class Backend(BaseModel):
-    """Which base model the run uses. name selects the bijou.backends module.
+    """Which base model the run uses. name selects the engine.backends module.
 
     checkpoint names a file in paths.base_checkpoints without its extension. An
     empty checkpoint starts the model from random weights.
     """
 
-    name: str = "nanodiff"
+    name: BackendName = "nanodiff"
     checkpoint: str = "nanodiff-150m-sft-alpaca"
     device: str = "cuda"
     dtype: Literal["float32", "bfloat16"] = "bfloat16"

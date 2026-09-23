@@ -9,9 +9,10 @@ import torch
 
 from engine.adapters import io as adapter_io
 from engine.adapters.lora import add, inject, trainable
-from engine.backends.nanodiff import NanoDiffBackend
+from engine.backends import create
 from engine.core.config import Config
 from engine.core.determinism import seed_everything
+from engine.core.protocols import Backend
 from engine.core.runs import RunRecord, digest
 from engine.core.types.diffusion import AdapterSpec, Sample
 from engine.skills import load as load_skill
@@ -29,14 +30,14 @@ def spec_for(cfg: Config, name: str) -> AdapterSpec:
 
 
 def _batches(
-    backend: NanoDiffBackend, samples: list[Sample], size: int
+    backend: Backend, samples: list[Sample], size: int
 ) -> Iterator[tuple[torch.Tensor, torch.Tensor]]:
     for start in range(0, len(samples) - size + 1, size):
         chunk = samples[start : start + size]
         encoded = [backend.encode(s.prompt, s.target) for s in chunk]
         yield (
-            torch.stack([p for p, _ in encoded]).to(backend.nano.device),
-            torch.stack([r for _, r in encoded]).to(backend.nano.device),
+            torch.stack([p for p, _ in encoded]).to(backend.device),
+            torch.stack([r for _, r in encoded]).to(backend.device),
         )
 
 
@@ -44,7 +45,7 @@ def train_adapter(
     cfg: Config,
     skill_name: str,
     full_finetune: bool = False,
-    backend: NanoDiffBackend | None = None,
+    backend: Backend | None = None,
 ) -> Path:
     """Train one adapter and write its weights and a run record.
 
@@ -58,7 +59,7 @@ def train_adapter(
     skill = load_skill(skill_name, cfg.paths.data)
     samples = skill.generate(cfg.train.train_samples, cfg.train.seed, split="train")
 
-    backend = backend or NanoDiffBackend(cfg)
+    backend = backend or create(cfg)
     model = backend.build()
     if backend.checkpoint_path is not None:
         record.inputs["base_checkpoint"] = digest(backend.checkpoint_path)
@@ -75,9 +76,7 @@ def train_adapter(
         record.scores["trainable_params"] = float(trainable(model, skill_name))
 
     lr = cfg.train.full_finetune_lr if full_finetune else cfg.train.lr
-    optimizer = model.configure_optimizers(
-        cfg.train.weight_decay, lr, (0.9, 0.95), backend.nano.device
-    )
+    optimizer = backend.optimizer(cfg.train.weight_decay, lr, (0.9, 0.95))
     # Linear warmup from lr / warmup_steps to lr, then constant.
     warmup = max(cfg.train.warmup_steps, 1)
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda s: min(1.0, (s + 1) / warmup))
@@ -103,8 +102,7 @@ def train_adapter(
 
     if full_finetune:
         path = cfg.full_finetune_path(skill_name)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save({"model": model.state_dict(), "config": backend.nano}, path)
+        backend.save(path)
     else:
         path = cfg.adapter_path(skill_name)
         adapter_io.save(model, skill_name, path, spec_for(cfg, skill_name))

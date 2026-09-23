@@ -35,6 +35,11 @@ def test_the_prompt_dev_split_has_its_own_seed():
         Config(prompting={"seed": 1})
 
 
+def test_unknown_backend_rejected():
+    with pytest.raises(ValueError, match="name"):
+        Config(backend={"name": "llada9"})
+
+
 def test_unknown_condition_rejected():
     with pytest.raises(ValueError, match="conditions"):
         Config(eval={"conditions": ["ensembles"]})

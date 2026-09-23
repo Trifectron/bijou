@@ -80,8 +80,11 @@ per-denoising-step routing affordable, and what lets one bank equip different sk
 skill is a directory under `data/skills/<name>` that collection wrote, with fixed train, dev and
 eval files. Both satisfy `core.protocols.Skill`. `skills` imports no torch and no network client.
 
-`backends` is the vendor layer, the only package that imports `third_party/nanoDiff`. A larger
-diffusion LM (LLaDA, Dream) is a sibling module.
+`backends` is the vendor layer, the only package that imports `third_party/nanoDiff`. Every
+backend satisfies `core.protocols.Backend`: build, encode, loss, optimizer, save and generate with
+a per-step hook. `backends.create` builds the one `backend.name` selects, and `runtime` sees
+nothing else. A larger diffusion LM (LLaDA, Dream) is a sibling module and one entry in
+`backends.FACTORIES`.
 
 `runtime` trains one adapter, scores one condition, runs the tuned-prompt baseline, and holds the
 skill bank: `SkillBank` builds the base once, loads every trained adapter, and equips per request
