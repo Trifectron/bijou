@@ -11,8 +11,13 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
+from typing import get_args  # noqa: E402
+
 from engine.adapters.lora import add, inject  # noqa: E402
+from engine.backends import FACTORIES, create  # noqa: E402
 from engine.backends.nanodiff import NanoDiffBackend, tiny_config  # noqa: E402
+from engine.core.config.diffusion import BackendName  # noqa: E402
+from engine.core.protocols import Backend  # noqa: E402
 from engine.core.types.diffusion import AdapterSpec, GenerationRequest  # noqa: E402
 from engine.core.types.errors import BackendError  # noqa: E402
 from engine.routing.phase import PhaseRouter, PhaseSchedule  # noqa: E402
@@ -30,6 +35,26 @@ def _with_checkpoint(cfg, directory, name):
             "paths": cfg.paths.model_copy(update={"base_checkpoints": directory}),
         }
     )
+
+
+def test_every_backend_name_has_a_factory():
+    assert set(FACTORIES) == set(get_args(BackendName))
+
+
+def test_the_configured_backend_is_created(cfg):
+    backend = create(cfg)
+    assert isinstance(backend, NanoDiffBackend)
+    assert isinstance(backend, Backend)
+
+
+def test_a_full_model_saved_by_the_backend_builds_as_a_base(cfg, make_backend, tmp_path):
+    backend = make_backend(cfg)
+    saved = backend.build()
+    backend.save(tmp_path / "t.pt")
+
+    loaded = NanoDiffBackend(_with_checkpoint(cfg, tmp_path, "t")).build()
+
+    assert all(torch.equal(v, loaded.state_dict()[k]) for k, v in saved.state_dict().items())
 
 
 def test_a_missing_base_checkpoint_is_refused(cfg, make_backend, tmp_path):

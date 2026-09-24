@@ -13,7 +13,6 @@ test asserts it.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import Protocol
@@ -22,6 +21,7 @@ import torch
 import torch.nn.functional as F
 
 from engine.core.config import Config
+from engine.core.protocols import StepHook
 from engine.core.types.diffusion import GenerationRequest
 from engine.core.types.errors import BackendError
 
@@ -40,8 +40,6 @@ except ImportError as exc:  # pragma: no cover
     raise BackendError("nanoDiff is not importable; run: git submodule update --init") from exc
 
 __all__ = ["NanoDiffBackend", "Tokenizer", "tiny_config"]
-
-StepHook = Callable[[int, int], object]
 
 
 class Tokenizer(Protocol):
@@ -93,6 +91,10 @@ class NanoDiffBackend:
         return self._enc
 
     @property
+    def device(self) -> str:
+        return str(self.nano.device)
+
+    @property
     def eot_id(self) -> int:
         return self.enc.eot_token
 
@@ -140,6 +142,24 @@ class NanoDiffBackend:
         model = model.to(self.nano.device)
         self.model = model
         return model
+
+    def optimizer(
+        self, weight_decay: float, lr: float, betas: tuple[float, float]
+    ) -> torch.optim.Optimizer:
+        """AdamW from upstream: decay on matrices only."""
+        if self.model is None:
+            raise BackendError("build the model before making an optimizer")
+        optimizer: torch.optim.Optimizer = self.model.configure_optimizers(
+            weight_decay, lr, betas, self.nano.device
+        )
+        return optimizer
+
+    def save(self, path: Path) -> None:
+        """The weights and the architecture, as build reads them."""
+        if self.model is None:
+            raise BackendError("build the model before saving it")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save({"model": self.model.state_dict(), "config": self.nano}, path)
 
     def prompt_ids(self, prompt: str) -> list[int]:
         """The prompt in the SFT template, truncated from the left like encode."""

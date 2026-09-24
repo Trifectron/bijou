@@ -20,7 +20,8 @@ The agent's seams, each with a double in core.doubles:
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from engine.core.types.agent import (
@@ -42,6 +43,8 @@ from engine.core.types.diffusion import AdapterSpec, GenerationRequest, Sample, 
 
 if TYPE_CHECKING:
     import torch
+
+StepHook = Callable[[int, int], object]
 
 # ---------------------------------------------------------------- the diffusion model
 
@@ -118,13 +121,41 @@ class Skill(Protocol):
 
 @runtime_checkable
 class Backend(Protocol):
-    """A base model, its training step, and its sampler."""
+    """A base model, its training step, and its sampler. backend.name selects one."""
+
+    @property
+    def device(self) -> str:
+        """The device the model and its batches live on."""
+        ...
+
+    @property
+    def checkpoint_path(self) -> Path | None:
+        """The configured base checkpoint, or None for random weights."""
+        ...
 
     def build(self) -> torch.nn.Module:
         """Construct the base model on the configured device."""
         ...
 
-    def generate(self, req: GenerationRequest, on_step: object | None = None) -> str:
+    def encode(self, prompt: str, target: str) -> tuple[torch.Tensor, torch.Tensor]:
+        """One sample as fixed-width prompt and response ids."""
+        ...
+
+    def loss(self, prompts: torch.Tensor, responses: torch.Tensor) -> torch.Tensor:
+        """The training objective over one batch."""
+        ...
+
+    def optimizer(
+        self, weight_decay: float, lr: float, betas: tuple[float, float]
+    ) -> torch.optim.Optimizer:
+        """An optimizer over the parameters that require gradients."""
+        ...
+
+    def save(self, path: Path) -> None:
+        """Write the whole model as a base checkpoint build can read."""
+        ...
+
+    def generate(self, req: GenerationRequest, on_step: StepHook | None = None) -> str:
         """Run the reverse process. on_step is called before each denoising step."""
         ...
 

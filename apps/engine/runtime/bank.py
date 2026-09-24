@@ -10,8 +10,8 @@ from __future__ import annotations
 import threading
 import time
 
-from engine.backends.nanodiff import NanoDiffBackend
 from engine.core.config import Config
+from engine.core.protocols import Backend
 from engine.core.types.agent import SkillInfo, SkillRequest, SkillResult
 from engine.core.types.diffusion import GenerationRequest
 from engine.core.types.errors import AdapterError, ConfigError, EngineError
@@ -28,7 +28,7 @@ class SkillBank:
     def __init__(
         self,
         cfg: Config,
-        backend: NanoDiffBackend | None = None,
+        backend: Backend | None = None,
         metrics: BankMetrics | None = None,
     ) -> None:
         loading = time.monotonic()

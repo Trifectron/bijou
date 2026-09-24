@@ -14,23 +14,16 @@ from __future__ import annotations
 
 from itertools import combinations
 from pathlib import Path
-from typing import TYPE_CHECKING
 
+from engine.backends import create
 from engine.core.config import Config
+from engine.core.protocols import Backend
 from engine.core.runs import RunRecord, digest
 from engine.core.types.diffusion import AdapterState, Sample, SkillReport
 from engine.core.types.errors import ArtifactError
 from engine.routing.phase import PhaseSchedule
-from engine.runtime.evaluate import (
-    BackendFactory,
-    default_backend,
-    prepare,
-    score_condition,
-)
+from engine.runtime.evaluate import BackendFactory, prepare, score_condition
 from engine.runtime.prompting import tune, tuned_eval_split
-
-if TYPE_CHECKING:
-    from engine.backends.nanodiff import NanoDiffBackend
 
 
 def conditions(skills: tuple[str, ...]) -> dict[str, tuple[str, ...]]:
@@ -47,7 +40,7 @@ def _require(path: Path, fix: str) -> None:
         raise ArtifactError(f"{path} is missing; run: {fix}")
 
 
-def run(cfg: Config, make_backend: BackendFactory = default_backend) -> list[SkillReport]:
+def run(cfg: Config, make_backend: BackendFactory = create) -> list[SkillReport]:
     """Score every configured condition against every skill and write one run record."""
     skills = cfg.eval.skills
     selected = cfg.eval.conditions
@@ -64,7 +57,7 @@ def run(cfg: Config, make_backend: BackendFactory = default_backend) -> list[Ski
     reports: list[SkillReport] = []
 
     def score(
-        backend: NanoDiffBackend,
+        backend: Backend,
         state: AdapterState,
         condition: str,
         skill: str,
